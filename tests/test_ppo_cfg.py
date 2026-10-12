@@ -118,6 +118,16 @@ def test_required_kwargs_is_not_empty() -> None:
     )
 
 
+def test_gesture_paw_initial_action_noise_fits_joint_tracking_tolerance() -> None:
+    """Exploration at start must not overwhelm the paw clip's joint reward."""
+    from tasks.jumper.common.constants import ACTION_SCALE
+    from tasks.jumper.gesture_paw.rl_cfg import agent_cfg
+
+    initial_std = agent_cfg().actor.distribution_cfg["init_std"]
+    joint_tracking_std = 0.13
+    assert initial_std * ACTION_SCALE <= joint_tracking_std / 2
+
+
 def test_agent_cfgs_do_not_alias_mutable_state() -> None:
     """Mutating one task's config must not reach another's.
 

@@ -1,9 +1,8 @@
 """Hyper-parameters for jumper.gesture_paw.
 
-jumper.dance's, value for value, and for the reasons written out in
-`tasks/jumper/dance/rl_cfg.py`: the network, PPO and runner settings were chosen for
-imitating a clip on this robot, not for that one clip. Written out again rather
-than imported, so that changing one clip's training is a change to that clip.
+Based on jumper.dance's settings, with lower initial exploration noise for the
+narrow joint-tracking reward on this clip. Written out rather than imported so
+that changing one clip's training does not retune the other.
 """
 
 from __future__ import annotations
@@ -25,7 +24,11 @@ def agent_cfg() -> RslRlOnPolicyRunnerCfg:
         use_mirror_loss=False,
         actor_hidden_dims=(512, 256, 128, 64),
         critic_hidden_dims=(512, 256, 128, 64),
-        init_std=1.0,
+        # The action scale is 0.25 rad; std=1.0 injects 0.25 rad of joint noise,
+        # nearly twice this clip's 0.13-rad tracking width. In short runs the
+        # resulting action-change penalties outweighed tracking, and training
+        # collapsed into short episodes. Start within half that width instead.
+        init_std=0.25,
         # Half the baseline's: imitation needs less exploration than locomotion,
         # and a rising `Policy/mean_std` costs precision terms first.
         entropy_coef=0.005,
