@@ -11,7 +11,7 @@ from mjrl.manipulation import PointIK, TargetEstimate
 class ManipulationTests(unittest.TestCase):
     def setUp(self):
         self.model = mujoco.MjModel.from_xml_string('''
-          <mujoco><worldbody><body name="hand">
+          <mujoco><compiler angle="radian"/><worldbody><body name="hand">
             <joint name="x" type="slide" axis="1 0 0" range="-1 1"/>
             <joint name="y" type="slide" axis="0 1 0" range="-1 1"/>
             <joint name="z" type="slide" axis="0 0 1" range="-1 1"/>
@@ -60,6 +60,64 @@ class ManipulationTests(unittest.TestCase):
         self.ik.solve(self.model.qpos0, (.3, .2, .4))
         result = self.ik.solve(self.model.qpos0, (-.4, -.1, .1))
         np.testing.assert_allclose(result.joints, (-.4, -.1, .08), atol=1e-4)
+
+    def test_axis_constraint_keeps_the_gripper_aligned_at_the_target(self):
+        model = mujoco.MjModel.from_xml_string('''
+          <mujoco><compiler angle="radian"/><worldbody><body name="hand">
+            <joint name="x" type="slide" axis="1 0 0" range="-1 1"/>
+            <joint name="y" type="slide" axis="0 1 0" range="-1 1"/>
+            <joint name="z" type="slide" axis="0 0 1" range="-1 1"/>
+            <joint name="yaw" type="hinge" axis="0 0 1" range="-3 3"/>
+            <geom type="sphere" size=".01" mass="1"/>
+          </body></worldbody></mujoco>''')
+        ik = PointIK(model, "hand", ("x", "y", "z", "yaw"), (0, 0, .02),
+                     local_axis=(1, 0, 0))
+        state = model.qpos0.copy()
+        state[3] = .7
+        result = ik.solve(state, (.23, -.17, .42), axis_target=(0, 1, 0))
+        self.assertLess(result.error_m, 1e-4)
+        self.assertLess(result.axis_error_rad, 1e-4)
+        self.assertAlmostEqual(result.joints[3], np.pi / 2, places=4)
+        np.testing.assert_array_equal(state, (.0, .0, .0, .7))
+
+    def test_axis_constraint_rejects_incomplete_or_nonunit_configuration(self):
+        for axis in ((0, 0, 0), (float("nan"), 0, 1)):
+            with self.assertRaises(ValueError):
+                PointIK(self.model, "hand", ("x",), (0, 0, 0), local_axis=axis)
+        with self.assertRaises(ValueError):
+            self.ik.solve(self.model.qpos0, (0, 0, 0), axis_target=(1, 0, 0))
+
+    def test_impossible_axis_is_reported_without_hiding_position_error(self):
+        ik = PointIK(self.model, "hand", ("x", "y", "z"), (0, 0, 0),
+                     local_axis=(1, 0, 0))
+        result = ik.solve(self.model.qpos0, (.1, .2, .3), axis_target=(0, 1, 0))
+        self.assertLess(result.error_m, 1e-4)
+        self.assertAlmostEqual(result.axis_error_rad, np.pi / 2)
+
+    def test_axis_can_stay_in_a_plane_without_overconstraining_its_yaw(self):
+        model = mujoco.MjModel.from_xml_string('''
+          <mujoco><compiler angle="radian"/><worldbody><body name="hand">
+            <joint name="x" type="slide" axis="1 0 0" range="-1 1"/>
+            <joint name="y" type="slide" axis="0 1 0" range="-1 1"/>
+            <joint name="z" type="slide" axis="0 0 1" range="-1 1"/>
+            <joint name="pitch" type="hinge" axis="0 1 0" range="-1.5 1.5"/>
+            <geom type="sphere" size=".01" mass="1"/>
+          </body></worldbody></mujoco>''')
+        ik = PointIK(model, "hand", ("x", "y", "z", "pitch"), (0, 0, .02),
+                     local_axis=(1, 0, 0))
+        state = model.qpos0.copy()
+        state[3] = .7
+        result = ik.solve(state, (.23, -.17, .42), axis_plane_normal=(0, 0, 1))
+        self.assertLess(result.error_m, 1e-4)
+        self.assertLess(result.axis_error_rad, 1e-4)
+        self.assertAlmostEqual(result.joints[3], 0., places=4)
+
+    def test_two_orientation_constraints_cannot_be_silently_mixed(self):
+        ik = PointIK(self.model, "hand", ("x", "y", "z"), (0, 0, 0),
+                     local_axis=(1, 0, 0))
+        with self.assertRaises(ValueError):
+            ik.solve(self.model.qpos0, (0, 0, 0), axis_target=(1, 0, 0),
+                     axis_plane_normal=(0, 0, 1))
 
     def test_sensor_estimates_expire_and_do_not_accept_future_samples(self):
         estimate = TargetEstimate((.2, .1, .05), 1., .9)

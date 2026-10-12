@@ -56,6 +56,7 @@ class TargetEstimate:
 class IKResult:
     joints: np.ndarray
     error_m: float
+    axis_error_rad: float | None = None
 
 
 class PointIK:
@@ -64,10 +65,15 @@ class PointIK:
     All other joints, including the base, remain at the supplied measured
     configuration. Targets are world-frame metres. A controller must convert
     base-frame sensor estimates explicitly, gate the residual, and rate-limit
-    the result before sending it to servos. This is not a motion planner.
+    the result before sending it to servos. An optional body-fixed axis can be
+    aligned to a world direction (two orientation conditions) or kept in a
+    world plane (one condition). Position and angular errors are reported
+    separately so a short arm cannot hide a compromised pose. This is not a
+    collision-aware motion planner.
     """
 
-    def __init__(self, model, body_name, joint_names, local_point, *, margin=.01):
+    def __init__(self, model, body_name, joint_names, local_point, *, margin=.01,
+                 local_axis=None, axis_scale_m=.05):
         self.model = model
         self.body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name)
         if self.body < 0:
@@ -91,20 +97,57 @@ class PointIK:
         inset = (ranges[:, 1] - ranges[:, 0]) * margin / 2
         self.lower, self.upper = ranges[:, 0] + inset, ranges[:, 1] - inset
         self.local_point = _vector(local_point, 3, "local point")
+        self.local_axis = None
+        if local_axis is not None:
+            axis = _vector(local_axis, 3, "local axis")
+            norm = float(np.linalg.norm(axis))
+            if norm < 1e-12:
+                raise ValueError("local axis must have nonzero length")
+            self.local_axis = axis / norm
+        if not math.isfinite(axis_scale_m) or axis_scale_m <= 0:
+            raise ValueError("axis residual scale must be finite and positive")
+        self.axis_scale_m = axis_scale_m
         self.data = mujoco.MjData(model)
 
-    def solve(self, qpos, target) -> IKResult:
+    def solve(self, qpos, target, *, axis_target=None, axis_plane_normal=None) -> IKResult:
         state = _vector(qpos, self.model.nq, "qpos")
         goal = _vector(target, 3, "target")
+        if axis_target is not None and axis_plane_normal is not None:
+            raise ValueError("choose an axis direction or a plane constraint, not both")
+        constrained = axis_target is not None or axis_plane_normal is not None
+        if (self.local_axis is not None) != constrained:
+            raise ValueError("local axis and an orientation constraint must both be supplied")
+        direction = None
+        if constrained:
+            direction = _vector(axis_target if axis_target is not None else axis_plane_normal,
+                                3, "target axis or plane normal")
+            norm = float(np.linalg.norm(direction))
+            if norm < 1e-12:
+                raise ValueError("target axis must have nonzero length")
+            direction /= norm
         self.data.qpos[:] = state
 
         def residual(joints):
             self.data.qpos[self.qadr] = joints
             mujoco.mj_kinematics(self.model, self.data)
-            return (self.data.xpos[self.body]
-                    + self.data.xmat[self.body].reshape(3, 3) @ self.local_point - goal)
+            rotation = self.data.xmat[self.body].reshape(3, 3)
+            error = self.data.xpos[self.body] + rotation @ self.local_point - goal
+            if direction is None:
+                return error
+            if axis_plane_normal is not None:
+                return np.concatenate((error, [self.axis_scale_m *
+                                               ((rotation @ self.local_axis) @ direction)]))
+            return np.concatenate((error, self.axis_scale_m *
+                                   (rotation @ self.local_axis - direction)))
 
         fit = least_squares(residual, np.clip(state[self.qadr], self.lower, self.upper),
                             bounds=(self.lower, self.upper), max_nfev=60,
                             ftol=1e-8, xtol=1e-8, gtol=1e-8)
-        return IKResult(fit.x.copy(), float(np.linalg.norm(residual(fit.x))))
+        error = residual(fit.x)
+        angle = None
+        if direction is not None:
+            actual = self.data.xmat[self.body].reshape(3, 3) @ self.local_axis
+            cosine = np.clip(actual @ direction, -1, 1)
+            angle = float(np.arcsin(abs(cosine)) if axis_plane_normal is not None
+                          else np.arccos(cosine))
+        return IKResult(fit.x.copy(), float(np.linalg.norm(error[:3])), angle)
