@@ -1,0 +1,88 @@
+"""Manipulation boundaries: impossible/stale targets must not look successful."""
+
+import unittest
+
+import mujoco
+import numpy as np
+
+from mjrl.manipulation import PointIK, TargetEstimate
+
+
+class ManipulationTests(unittest.TestCase):
+    def setUp(self):
+        self.model = mujoco.MjModel.from_xml_string('''
+          <mujoco><worldbody><body name="hand">
+            <joint name="x" type="slide" axis="1 0 0" range="-1 1"/>
+            <joint name="y" type="slide" axis="0 1 0" range="-1 1"/>
+            <joint name="z" type="slide" axis="0 0 1" range="-1 1"/>
+            <geom type="sphere" size=".01" mass="1"/>
+          </body></worldbody></mujoco>''')
+        self.ik = PointIK(self.model, "hand", ("x", "y", "z"), (0, 0, .02))
+
+    def test_reaches_target_without_mutating_input_state(self):
+        qpos = self.model.qpos0.copy()
+        result = self.ik.solve(qpos, (.23, -.17, .42))
+        self.assertLess(result.error_m, 1e-4)
+        np.testing.assert_allclose(result.joints, (.23, -.17, .40), atol=1e-4)
+        np.testing.assert_array_equal(qpos, self.model.qpos0)
+
+    def test_unreachable_target_reports_residual_and_respects_limits(self):
+        result = self.ik.solve(self.model.qpos0, (2, 0, .02))
+        self.assertGreater(result.error_m, 1)
+        self.assertLessEqual(result.joints[0], .99)
+
+    def test_missing_or_duplicate_joints_fail_loudly(self):
+        for joints in (("missing",), ("x", "x")):
+            with self.assertRaises(ValueError):
+                PointIK(self.model, "hand", joints, (0, 0, 0))
+
+    def test_nonfinite_targets_are_rejected(self):
+        for value in (float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                self.ik.solve(self.model.qpos0, (value, 0, 0))
+
+    def test_bad_state_and_missing_body_are_rejected(self):
+        for state in ((0, 0), (0, float("nan"), 0)):
+            with self.assertRaises(ValueError):
+                self.ik.solve(state, (0, 0, 0))
+        with self.assertRaises(ValueError):
+            PointIK(self.model, "missing", ("x",), (0, 0, 0))
+
+    def test_invalid_margin_and_unbounded_joints_are_rejected(self):
+        for margin in (0, -1, 1, float("nan")):
+            with self.assertRaises(ValueError):
+                PointIK(self.model, "hand", ("x",), (0, 0, 0), margin=margin)
+        self.model.jnt_limited[0] = False
+        with self.assertRaises(ValueError):
+            PointIK(self.model, "hand", ("x",), (0, 0, 0))
+
+    def test_repeated_solves_use_the_new_target(self):
+        self.ik.solve(self.model.qpos0, (.3, .2, .4))
+        result = self.ik.solve(self.model.qpos0, (-.4, -.1, .1))
+        np.testing.assert_allclose(result.joints, (-.4, -.1, .08), atol=1e-4)
+
+    def test_sensor_estimates_expire_and_do_not_accept_future_samples(self):
+        estimate = TargetEstimate((.2, .1, .05), 1., .9)
+        self.assertTrue(estimate.usable(1.1, max_age_s=.2, min_confidence=.8))
+        self.assertFalse(estimate.usable(1.3, max_age_s=.2, min_confidence=.8))
+        self.assertFalse(estimate.usable(.9, max_age_s=.2, min_confidence=.8))
+        self.assertFalse(estimate.usable(1.1, max_age_s=.2, min_confidence=.95))
+
+    def test_malformed_estimates_are_rejected(self):
+        for position, timestamp, confidence in (
+            ((0, 0), 1., .9), ((float("nan"), 0, 0), 1., .9),
+            ((0, 0, 0), -1., .9), ((0, 0, 0), 1., 1.1),
+        ):
+            with self.assertRaises(ValueError):
+                TargetEstimate(position, timestamp, confidence)
+
+    def test_bad_freshness_thresholds_fail_instead_of_allowing_motion(self):
+        estimate = TargetEstimate((.1, .2, .3), 1., .9)
+        for now, age, confidence in ((1., 0., .8), (1., .2, -1.),
+                                     (float("nan"), .2, .8)):
+            with self.assertRaises(ValueError):
+                estimate.usable(now, max_age_s=age, min_confidence=confidence)
+
+
+if __name__ == "__main__":
+    unittest.main()
