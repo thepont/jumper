@@ -175,6 +175,28 @@ def test_train_loads_the_checkpoint_before_it_learns() -> None:
     assert train.index("_resume(runner") < train.index("runner.learn(")
 
 
+@pytest.mark.parametrize("saved_iteration", [0, 4])
+def test_resumed_training_starts_after_saved_iteration(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], saved_iteration: int
+) -> None:
+    monkeypatch.syspath_prepend(str(REPO / "scripts"))
+    from train import _resume
+
+    class Runner:
+        current_learning_iteration = 0
+
+        def load(self, path: str, map_location: str) -> None:
+            assert path == "model.pt"
+            assert map_location == "cpu"
+            self.current_learning_iteration = saved_iteration
+
+    runner = Runner()
+    _resume(runner, Path("model.pt"), "cpu", 2)
+
+    assert runner.current_learning_iteration == saved_iteration + 1
+    assert f"through {saved_iteration + 2}" in capsys.readouterr().out
+
+
 def test_no_entry_point_searches_the_log_tree_itself() -> None:
     """One implementation of "which checkpoint", in `mjrl.checkpoint`.
 

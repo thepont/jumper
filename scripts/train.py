@@ -201,6 +201,9 @@ def _resume(runner, ckpt: Path, device: str, more_iterations: int) -> None:
             f"--resume), or point --checkpoint at a matching run."
         ) from None
 
+    # Checkpoints record the iteration that just finished; learn() treats this
+    # counter as the first iteration to run. Do not repeat the saved update.
+    runner.current_learning_iteration += 1
     start = runner.current_learning_iteration
     print(
         f"[mjrl] resumed at iteration {start}; running {more_iterations} more "
