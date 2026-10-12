@@ -107,6 +107,29 @@ def _parser() -> argparse.ArgumentParser:
         default="",
         help="comma-separated glob patterns of colliding geoms to keep active; others disabled",
     )
+    p.add_argument(
+        "--strip-mesh-geoms",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="remove all mesh geoms from the copied model for ROCm MJX compatibility",
+    )
+    p.add_argument(
+        "--add-joint-motors",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="inject bounded effort motors when the XML has no actuators",
+    )
+    p.add_argument(
+        "--strip-sensors",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="remove XML sensors unsupported by the current ROCm MJX backend",
+    )
+    p.add_argument(
+        "--amd-safe-model",
+        action="store_true",
+        help="enable the ROCm-safe model adaptations (mesh-free and joint-actuated)",
+    )
     p.add_argument("--require-mjx", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--show-events", action="store_true")
     p.add_argument("--tensorboard", action=argparse.BooleanOptionalAction, default=False)
@@ -174,6 +197,9 @@ def main(
             strip_visual_meshes=args.strip_visual_meshes,
             strip_noncolliding_geoms=args.strip_noncolliding_geoms,
             collision_keep_patterns=keep_patterns,
+            strip_mesh_geoms=args.strip_mesh_geoms or args.amd_safe_model,
+            add_joint_motors=args.add_joint_motors or args.amd_safe_model,
+            strip_sensors=args.strip_sensors or args.amd_safe_model,
             seed=args.seed,
         )
         trainer = trainer_cls(sink=sink)

@@ -27,6 +27,9 @@ class MJXTrainConfig:
     strip_visual_meshes: bool = False
     strip_noncolliding_geoms: bool = False
     collision_keep_patterns: tuple[str, ...] = ()
+    strip_mesh_geoms: bool = False
+    add_joint_motors: bool = False
+    strip_sensors: bool = False
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,9 @@ class MJXLinearPolicyTrainer:
             strip_visual_meshes=cfg.strip_visual_meshes,
             strip_noncolliding_geoms=cfg.strip_noncolliding_geoms,
             collision_keep_patterns=cfg.collision_keep_patterns,
+            strip_mesh_geoms=cfg.strip_mesh_geoms,
+            add_joint_motors=cfg.add_joint_motors,
+            strip_sensors=cfg.strip_sensors,
         )
         validate_trainable_model(mj_model)
         self._sink.on_event(
@@ -324,8 +330,16 @@ def _load_model(
     strip_visual_meshes: bool,
     strip_noncolliding_geoms: bool,
     collision_keep_patterns: tuple[str, ...],
+    strip_mesh_geoms: bool,
+    add_joint_motors: bool,
+    strip_sensors: bool,
 ):
-    if not strip_visual_meshes:
+    if (
+        not strip_visual_meshes
+        and not strip_mesh_geoms
+        and not add_joint_motors
+        and not strip_sensors
+    ):
         if not strip_noncolliding_geoms:
             return mujoco.MjModel.from_xml_path(str(model_path))
         spec = mujoco.MjSpec.from_file(str(model_path))
@@ -335,12 +349,64 @@ def _load_model(
         return spec.compile()
 
     spec = mujoco.MjSpec.from_file(str(model_path))
+    if strip_mesh_geoms:
+        spec = _strip_mesh_geoms(spec, mujoco=mujoco)
+    if strip_sensors:
+        for sensor in list(spec.sensors):
+            spec.delete(sensor)
     spec = _strip_visual_meshes(spec, mujoco=mujoco)
     if strip_noncolliding_geoms:
         spec = _strip_noncolliding_geoms(spec, mujoco=mujoco)
     if collision_keep_patterns:
         spec = _keep_only_collisions(spec, mujoco=mujoco, patterns=collision_keep_patterns)
+    if add_joint_motors:
+        _add_joint_motors(spec, mujoco=mujoco)
     return spec.compile()
+
+
+def _strip_mesh_geoms(spec, *, mujoco):
+    """Remove mesh geoms and mesh assets for ROCm MJX compatibility.
+
+    ROCm MJX currently terminates the process while compiling this model's mesh
+    collision path.  This operates on the copied ``MjSpec`` only; the source
+    XML and the native simulation retain their authored collision geometry.
+    """
+    mesh_t = int(mujoco.mjtGeom.mjGEOM_MESH)
+    compiled = spec.compile()
+    doomed = {
+        compiled.geom(i).name
+        for i in range(compiled.ngeom)
+        if compiled.geom_type[i] == mesh_t
+    }
+    for body in spec.bodies:
+        for geom in list(body.geoms):
+            if geom.name in doomed:
+                spec.delete(geom)
+    for mesh in list(spec.meshes):
+        spec.delete(mesh)
+    return spec
+
+
+def _add_joint_motors(spec, *, mujoco):
+    """Add bounded effort motors for hinge and slide joints lacking actuators."""
+    if spec.actuators:
+        return
+    for joint in spec.joints:
+        if joint.type not in (
+            mujoco.mjtJoint.mjJNT_HINGE,
+            mujoco.mjtJoint.mjJNT_SLIDE,
+        ):
+            continue
+        actuator = spec.add_actuator(name=f"{joint.name}_motor", target=joint.name)
+        actuator.trntype = mujoco.mjtTrn.mjTRN_JOINT
+        actuator.dyntype = mujoco.mjtDyn.mjDYN_NONE
+        actuator.gaintype = mujoco.mjtGain.mjGAIN_FIXED
+        actuator.biastype = mujoco.mjtBias.mjBIAS_NONE
+        actuator.gear[0] = 1.0
+        actuator.forcelimited = True
+        actuator.forcerange[:] = (-2.0, 2.0)
+        actuator.ctrllimited = True
+        actuator.ctrlrange[:] = (-2.0, 2.0)
 
 
 def _strip_visual_meshes(spec, *, mujoco):

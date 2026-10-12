@@ -204,6 +204,37 @@ def test_given_es_batch_cli_when_mjx_training_starts_then_cfg_carries_batch_size
     )
 
 
+def test_given_amd_safe_flags_when_training_starts_then_cfg_carries_model_adaptations(
+    tmp_path: Path,
+) -> None:
+    _CaptureCfgTrainer.seen_cfg = None
+    factory = AcceleratorFactory(
+        mjx_strategy=_FakeMJX(), cpu_strategy=CPUFallbackStrategy()
+    )
+
+    code = mjx_train_clutter.main(
+        [
+            "--prefer",
+            "mjx",
+            "--out-dir",
+            str(tmp_path),
+            "--amd-safe-model",
+            "--add-joint-motors",
+            "--iterations",
+            "1",
+            "--horizon",
+            "1",
+        ],
+        factory=factory,
+        trainer_cls=_CaptureCfgTrainer,
+    )
+
+    assert code == 0
+    assert _CaptureCfgTrainer.seen_cfg.strip_mesh_geoms is True
+    assert _CaptureCfgTrainer.seen_cfg.add_joint_motors is True
+    assert _CaptureCfgTrainer.seen_cfg.strip_sensors is True
+
+
 def test_given_model_without_actuators_when_training_starts_then_it_is_rejected() -> None:
     class Model:
         nu = 0
