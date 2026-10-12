@@ -27,7 +27,7 @@ from ..five_foot.tools.pickup_check import (
 )
 from .mdp.actions import ClawActionCfg
 from .mdp import terms
-from .collision import ChassisSpec, with_chassis_contacts
+from .collision import CHASSIS_GEOMS, ChassisSpec, with_chassis_contacts
 
 
 def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
@@ -81,7 +81,8 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
         open_angle=BENCH_OPEN, closed_angle=GRIPPER_CLOSED, noise_m=.002,
         dropout=detection_dropout, local_point=tuple(FIXED_CONTACT_PALM * local_sign),
         tray_half=TRAY_INNER_HALF, floor_thickness=BIN_WALL_T, hull=solid.hull,
-        object_names=names, object_scales=scales, object_size=solid.size)}
+        object_names=names, object_scales=scales, object_size=solid.size,
+        max_chassis_penetration_m=.002)}
     from mjlab.sensor import ContactMatch, ContactSensorCfg
     prefix = 'LF' if claw_side == 'left' else 'RF'
     sensors = []
@@ -102,6 +103,12 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
                              primary=ContactMatch(mode='subtree', pattern=f'{prefix}_palm_link', entity='robot'),
                              secondary=secondary, fields=('found',)),
         ))
+    for side in ('LF', 'RF'):
+        sensors.append(ContactSensorCfg(
+            name=f'pickup_chassis_{side}',
+            primary=ContactMatch(mode='geom', pattern=CHASSIS_GEOMS, entity='robot'),
+            secondary=ContactMatch(mode='subtree', pattern=f'{side}_upper_arm_link', entity='robot'),
+            fields=('found', 'dist'), reduce='mindist', history_length=cfg.decimation))
     cfg.scene.sensors = tuple(sensors)
     actor_terms = {'proprioception': ObservationTermCfg(func=terms.proprioception),
                    'simulated_detections': ObservationTermCfg(func=terms.detections)}
@@ -124,6 +131,8 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
     cfg.rewards['action_rate'] = RewardTermCfg(func=env_mdp.action_rate_l2, weight=-.005)
     cfg.terminations['placed'] = TerminationTermCfg(func=terms.outcome, params={'kind': 'success'})
     cfg.terminations['invalid_fixture'] = TerminationTermCfg(func=terms.outcome, params={'kind': 'invalid'})
+    cfg.terminations['chassis_intrusion'] = TerminationTermCfg(
+        func=terms.outcome, params={'kind': 'chassis_intrusion'})
     cfg.metrics = {name: MetricsTermCfg(func=terms.metric, params={'kind': kind}, reduce='max')
                    for name, kind in (('picked_up', 'picked'), ('placed', 'success'),
                                       ('invalid_fixture', 'invalid'), ('grip_contact', 'pinched'))}
@@ -132,4 +141,8 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
     cfg.metrics['size_scale'] = MetricsTermCfg(func=terms.metric, params={'kind': 'size_scale'})
     cfg.metrics['floor_clearance_m'] = MetricsTermCfg(func=terms.metric,
                                                      params={'kind': 'clearance'}, reduce='max')
+    for name, kind in (('chassis_intrusion', 'chassis_intrusion'),
+                       ('chassis_contact_count', 'chassis_contacts'),
+                       ('chassis_penetration_m', 'chassis_penetration')):
+        cfg.metrics[name] = MetricsTermCfg(func=terms.metric, params={'kind': kind}, reduce='max')
     return cfg

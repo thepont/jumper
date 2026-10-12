@@ -93,10 +93,18 @@ def outcome(env, *, kind):
     evidence.update()
     if kind == 'invalid':
         return evidence.invalid_fixture()
+    if kind == 'chassis_intrusion':
+        return ~evidence.valid_trajectory
     return getattr(evidence, kind)
 
 
 def metric(env, *, kind):
+    if kind == 'chassis_penetration':
+        from .safety import chassis_penetration
+        return chassis_penetration(env)
+    if kind == 'chassis_contacts':
+        from .safety import chassis_contacts
+        return chassis_contacts(env)
     if kind == 'reach_distance':
         term = claw(env)
         # Distance to the object centre, not a hidden IK target.

@@ -25,6 +25,7 @@ class ClawActionCfg(ActionTermCfg):
     object_names: tuple[str, ...]
     object_scales: tuple[float, ...]
     object_size: tuple[float, ...]
+    max_chassis_penetration_m: float
 
     def build(self, env):
         return ClawActions(self, env)
@@ -47,7 +48,7 @@ class ClawActions(ActionTerm):
             env, side=cfg.side, local_point=cfg.local_point, finger_ids=self.joints[-1:],
             finger_sign=self.finger_sign, open_angle=cfg.open_angle,
             tray_half=cfg.tray_half, floor_thickness=cfg.floor_thickness, hull=cfg.hull,
-            objects=self)
+            objects=self, max_chassis_penetration_m=cfg.max_chassis_penetration_m)
 
     @property
     def action_dim(self):

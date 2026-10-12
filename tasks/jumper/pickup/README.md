@@ -146,6 +146,27 @@ and stance hips keep their original exclusions. Parent filtering remains enabled
 globally disabling it exposes intentional mounting/hull overlap. Ground,
 cross-leg contact, jaw decomposition, mass and inertia remain unchanged.
 
+Both arms have chassis contact sensors with deepest-contact reduction and a
+history covering every physics substep of the 20 ms control frame. A penetration
+greater than the task-owned 2 mm solver tolerance latches an invalid trajectory,
+terminates it as a failure (not a timeout), and prevents pickup/placement credit.
+It is not merely a reward penalty. Partial resets clear only the selected world's
+latch and sensor history. Contact count, maximum penetration and intrusion are
+reported as privileged metrics; none is added to the actor's observations.
+
+Native two-world integration probes verified 80 normal settling frames per claw
+with zero chassis penetration. Deliberately injected invalid poses generated
+resisting contacts (LF forearm/base: 15.25 mm, 260.44 N; RF palm-piece/base:
+7.22 mm, 122.88 N), were detected by the sensors, and failed. Separate
+completion-frame probes supplied an otherwise-successful placement as a positive
+control: 0 and 2 mm penetration retained success, while 2.001 mm rejected it and
+paid zero placement bonus. Clearing contact did not clear the failure latch.
+Those large forces are **solver responses to invalid diagnostic poses**,
+not safe hardware forces or normal operating measurements. Failure latches and
+sensor histories passed partial-reset isolation checks on both sides; the old
+pilot checkpoint was rejected before weight loading. New checkpoints passed a
+save/load round trip and preserved the fresh-episode settling gate.
+
 Failing-first task probes ran outside the repository's framework suite, following
 `CLAUDE.md`. On the local native CPU/MuJoCo 3.11.0 backend (2026-10-13), four
 collision/geometry checks failed before the change; eight checks then passed,
@@ -154,6 +175,12 @@ calibrated starts and actual negative-distance contacts in obstructed joint pose
 Mask checks alone are insufficient: physical contacts must also be generated.
 The old scripted pickup benchmark retains its original physics; its success
 rates must not be presented as validation of the corrected pickup scene.
+
+Three-update, four-world native CPU PPO smoke runs completed for each claw with
+mixed sizes and 30 mm position variation. These validate training and saving
+under the corrected contract, **not grasp learning or hardware safety**. Fourteen
+external task checks and 61 focused framework checks passed; the full suite had
+1,277 passes, 28 skips and the same 11 pre-existing failures as the prior run.
 
 The next learning work is a grasp-first curriculum or verified demonstration
 warm-start, followed by held-out position/size checks. Then combine manipulation
