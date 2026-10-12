@@ -77,8 +77,9 @@ def _pickup_case(case):
             report = run(args)
         diagnostics = log.getvalue()
     return {
-        "seed": case["seed"], "side": case["side"],
-        "object_offset_mm": case["object_offset_mm"], "bin_offset_mm": case["bin_offset_mm"],
+        "seed": case["seed"], "side": case.get("side", "left"),
+        "object_offset_mm": case.get("object_offset_mm", (0, 0)),
+        "bin_offset_mm": case.get("bin_offset_mm", (0, 0)),
         "worker_pid": os.getpid(), "report": report,
         "control_steps": steps, "physics_substeps": substeps,
         "case_wall_seconds": time.monotonic() - started,
