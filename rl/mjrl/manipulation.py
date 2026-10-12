@@ -59,6 +59,96 @@ class IKResult:
     axis_error_rad: float | None = None
 
 
+@dataclass(frozen=True)
+class JointPathResult:
+    """Discrete collision-query evidence, not a continuous/hardware guarantee."""
+
+    found: bool
+    waypoints: tuple[np.ndarray, ...]
+    checks: int
+    reason: str
+
+
+def plan_joint_path(start, goal, lower, upper, is_valid, *, seed=0,
+                    max_samples=800, max_checks=10000, step_rad=.18,
+                    resolution_rad=.025) -> JointPathResult:
+    """Bounded seeded RRT with a caller-owned collision Strategy.
+
+    The callback judges a complete candidate joint vector using its own scene
+    and uncertainty model. Edges are sampled no farther apart than resolution
+    in any joint; thin obstacles or servo/base tracking error need additional
+    clearance at that boundary. Every query, including endpoints, consumes the
+    hard budget. No simulator state, collision masks or target poses are written.
+    """
+    initial = np.asarray(start, dtype=float)
+    if initial.ndim != 1 or not 1 <= len(initial) <= 32:
+        raise ValueError("start must contain between 1 and 32 joints")
+    initial = _vector(initial, len(initial), "start")
+    final = _vector(goal, len(initial), "goal")
+    lo = _vector(lower, len(initial), "lower bounds")
+    hi = _vector(upper, len(initial), "upper bounds")
+    if not (hi > lo).all() or not np.isfinite(hi - lo).all():
+        raise ValueError("joint bounds must have finite positive width")
+    if ((initial < lo) | (initial > hi) | (final < lo) | (final > hi)).any():
+        raise ValueError("path endpoints must be within joint bounds")
+    for value, minimum, maximum, name in (
+        (seed, 0, 2**32 - 1, "seed"), (max_samples, 1, 10000, "sample budget"),
+        (max_checks, 2, 1000000, "collision-query budget"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or not minimum <= value <= maximum:
+            raise ValueError(f"{name} must be an integer in [{minimum}, {maximum}]")
+    if (not math.isfinite(step_rad) or not math.isfinite(resolution_rad) or
+            not 0 < resolution_rad <= step_rad <= math.pi):
+        raise ValueError("require 0 < resolution <= step <= pi")
+    if not callable(is_valid):
+        raise ValueError("collision strategy must be callable")
+    checks = 0
+
+    def query(q):
+        nonlocal checks
+        if checks >= max_checks:
+            return False
+        checks += 1
+        return bool(is_valid(q.copy()))
+
+    def edge(a, b):
+        extent = float(np.abs(b - a).max())
+        # Reject a segment too large to check rather than allocate/run unbounded.
+        if extent / resolution_rad > max_checks - checks:
+            return False
+        count = max(1, math.ceil(extent / resolution_rad))
+        return all(query(a + (b - a) * (i / count)) for i in range(1, count + 1))
+
+    if not query(initial) or not query(final):
+        return JointPathResult(False, (), checks, "invalid endpoint")
+    if edge(initial, final):
+        return JointPathResult(True, (initial, final), checks, "direct corridor")
+    rng = np.random.default_rng(seed)
+    nodes, parents = [initial], [-1]
+    for sample in range(max_samples):
+        if checks >= max_checks:
+            break
+        candidate = final if sample % 5 == 0 else rng.uniform(lo, hi)
+        nearest = int(np.argmin([np.linalg.norm(q - candidate) for q in nodes]))
+        delta = candidate - nodes[nearest]
+        distance = float(np.linalg.norm(delta))
+        if distance < 1e-12:
+            continue
+        next_node = nodes[nearest] + delta * min(1., step_rad / distance)
+        if not edge(nodes[nearest], next_node):
+            continue
+        nodes.append(next_node)
+        parents.append(nearest)
+        if edge(next_node, final):
+            path = [final]
+            index = len(nodes) - 1
+            while index >= 0:
+                path.append(nodes[index])
+                index = parents[index]
+            return JointPathResult(True, tuple(reversed(path)), checks, "sampled corridor")
+    return JointPathResult(False, (), checks, "search budget exhausted")
+
+
 class PointIK:
     """Bounded inverse kinematics for a body-fixed point and selected joints.
 
