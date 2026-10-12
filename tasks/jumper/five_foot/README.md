@@ -605,6 +605,71 @@ never overwritten. A wall deadline terminates only this sweep's workers;
 unrelated jobs and checkpoints are untouched. The worker limit uses the native
 backend's CPU-affinity authority, not the unrestricted host core count.
 
+#### Explicit position checks
+
+Both diagnostic tools accept `--object-offset-mm X Y` and `--bin-offset-mm X Y`.
+These are millimetres relative to the existing bench centres: soap
+`(250, 80, 51)` mm and tray `(130, 235, 0)` mm on the left. Each XY component
+must be finite and within **[-50, 50] mm**. Offsets are added in the left-bench
+frame before reflecting the complete fixture's Y coordinate for the right
+side; positive Y therefore moves farther toward the selected claw's side.
+Z, object orientation and physical dimensions are unchanged. Zero offsets
+preserve the original fixture and `config(seed, side)` calls. The config also
+accepts keyword-only `object_offset_mm=(0, 0)` and `bin_offset_mm=(0, 0)`;
+`run(args)` supplies zero defaults for callers lacking these fields.
+
+The whole upright object's footprint must start outside the tray's outer
+footprint, including its walls. An overlapping layout is rejected before
+queuing any work, and the evaluator independently checks the actual physical
+hull after reset. The workspace bound limits inputs; it does not promise that
+every allowed layout is reachable or physically successful.
+
+For a position grid, repeat `--object-grid-mm X Y` and `--bin-grid-mm X Y` for
+each desired XY point. Each grid replaces its entity's single-offset flag;
+the two flags are mutually exclusive for that entity. The sweep enumerates
+the complete Cartesian product of object points, tray points, sides, and
+`--seeds`/`--repeat`. `--side both` runs both claws. Limits are 256 object/tray
+pairs and 10,000 total cases, checked before materialising the queue. No layout
+is filtered, retried or selected according to its result.
+
+This fixed-seed example queues nine distinct layouts per side (18 attempts),
+with two workers and a three-minute wall deadline:
+
+```bash
+python -m tasks.jumper.five_foot.tools.pickup_sweep \
+  --simulated-estimates --side both --seeds 7 --workers 2 --wall-timeout 180 \
+  --object-grid-mm -5 0 --object-grid-mm 0 0 --object-grid-mm 5 0 \
+  --bin-grid-mm 0 -5 --bin-grid-mm 0 0 --bin-grid-mm 0 5 \
+  --report /tmp/pickup-position-grid-new.json
+```
+
+Each result records bench-frame offsets and reflected world offsets in
+millimetres, plus measured initial object/tray positions in metres. The summary
+records requested/completed/successful case counts and failure types; the
+per-case reason retains numeric IK residuals. Holding the seed fixed makes
+these actual position variations rather than a renamed noise-seed sweep.
+All results remain scripted CPU diagnostics with synthetic estimates, not
+trained pickup or camera/hardware validation.
+
+Measured on 2026-10-13, AMD Ryzen 9 3900X (24 logical CPUs), native MuJoCo
+3.11.0, two persistent workers with numerical/native threads limited to one:
+the exact 18-case grid above completed in 55.32 s wall time, with 9,647 control
+world-steps and 38,588 physics substeps. Left succeeded **2/9** (four unreachable
+IK targets, three empty finger closures); right succeeded **3/9** (six
+unreachable IK targets). The zero-offset seed-7 cases both succeeded, at
+21.00 s simulated time on the left and 20.60 s on the right. These counts
+include every queued layout; none was retried.
+
+Separate seed-7 spot checks with object `(0, 0)` mm and tray `(0, 5)` mm offsets
+ran both sides: open-finger controls succeeded **0/2**, both reporting that the
+object did not follow the lift, with no pickup witness; complete sensor dropout
+succeeded **0/2**, both reporting unavailable/expired estimates, with zero arm
+target advancement and 152 stale control steps each. This demonstrates the
+diagnostic's sensitivity to position and its failure controls, not general
+pickup reliability. External `/tmp` acceptance probes checked reflection,
+actual reported initial positions, workspace/overlap rejection and legacy
+callers; no task-specific tests were added to the repository.
+
 Measured on the local 24-logical-CPU host, MuJoCo 3.11.0, 2026-10-13, with no
 video, identical alternating seeds 7/8 repeated twelve times:
 

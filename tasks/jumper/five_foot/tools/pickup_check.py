@@ -52,7 +52,39 @@ def bench_tray():
     return spec
 
 
-def config(seed=7, side="left"):
+def fixture_positions(side="left", *, object_offset_mm=(0, 0), bin_offset_mm=(0, 0)):
+    """Validate bench-frame XY millimetres, then reflect the whole right fixture.
+
+    The upright, unrotated soap must have a separating XY axis from the
+    tray's outer footprint. The evaluator checks the actual hull again at reset.
+    """
+    from tasks.jumper.five_foot.objects import BIN_WALL_T, SOLIDS
+
+    if side not in ("left", "right"):
+        raise ValueError("side must be left or right")
+    positions = []
+    for name, offset, origin in (("object-offset-mm", object_offset_mm, (.25, .08, .051)),
+                                 ("bin-offset-mm", bin_offset_mm, (.13, .235, 0.))):
+        if not isinstance(offset, (tuple, list)) or len(offset) != 2:
+            raise ValueError(f"{name} must contain exactly two XY values")
+        if any(isinstance(v, bool) or not isinstance(v, (int, float)) or
+               not -50 <= v <= 50 or not math.isfinite(v) for v in offset):
+            raise ValueError(f"{name} must be finite XY millimetres in [-50, 50]")
+        positions.append(np.array(origin) + np.array([*offset, 0.]) / 1000)
+    soap = next(s for s in SOLIDS if s.name == "soap")
+    lo, hi = soap.bounds
+    relative = positions[0] - positions[1]
+    outer = TRAY_INNER_HALF + BIN_WALL_T
+    if not any(relative[axis] + lo[axis] > outer or
+               relative[axis] + hi[axis] < -outer for axis in (0, 1)):
+        raise ValueError("pickup fixture must start with the whole object outside the tray")
+    mirror = np.array([1., -1. if side == "right" else 1., 1.])
+    return tuple(tuple(p * mirror) for p in positions)
+
+
+def config(seed=7, side="left", *, object_offset_mm=(0, 0), bin_offset_mm=(0, 0)):
+    object_position, bin_position = fixture_positions(
+        side, object_offset_mm=object_offset_mm, bin_offset_mm=bin_offset_mm)
     from tasks.jumper.five_foot.claw import ARM_JOINTS, LF_GRASP
     from tasks.jumper.five_foot.env_cfg import env_cfg
     from tasks.jumper.five_foot.objects import (
@@ -74,16 +106,13 @@ def config(seed=7, side="left"):
         tuple((LF_GRASP[j], LF_GRASP[j]) for j in ARM_JOINTS)
         + ((BENCH_OPEN, BENCH_OPEN),)
     )
-    if side not in ("left", "right"):
-        raise ValueError("side must be left or right")
     if side == "right":
         from .pickup_side import right_bench
         right_bench(cfg)
-    mirror = np.array([1., -1. if side == "right" else 1., 1.])
     soap = next(s for s in SOLIDS if s.name == "soap")
     props = {
-        "soap": _prop(partial(_solid_spec, soap), tuple(np.array([.25, .08, .051]) * mirror)),
-        "dropbin": _prop(bench_tray, tuple(np.array([.13, .235, .0]) * mirror)),
+        "soap": _prop(partial(_solid_spec, soap), object_position),
+        "dropbin": _prop(bench_tray, bin_position),
     }
     cfg.scene.entities.update(props)
     _place_props(cfg, props)
@@ -155,6 +184,8 @@ def run(args):
     from tasks.jumper.five_foot.objects import BIN_WALL_T
 
     side = getattr(args, "side", "left")
+    object_offset_mm = getattr(args, "object_offset_mm", (0, 0))
+    bin_offset_mm = getattr(args, "bin_offset_mm", (0, 0))
     prefix = "RF" if side == "right" else "LF"
     mirror = np.array([1., -1. if side == "right" else 1., 1.])
     # Actual LF/RF palm, finger and insert vertices match exactly under this
@@ -171,7 +202,9 @@ def run(args):
     from mjlab.envs import ManagerBasedRlEnv
 
     with ExitStack() as stack, torch.inference_mode():
-        env = ManagerBasedRlEnv(cfg=config(args.seed, side), device="cpu")
+        env = ManagerBasedRlEnv(cfg=config(
+            args.seed, side, object_offset_mm=object_offset_mm,
+            bin_offset_mm=bin_offset_mm), device="cpu")
         stack.callback(env.close)
         env.reset(seed=args.seed)
         model = env.sim.mj_model
@@ -199,6 +232,8 @@ def run(args):
             mujoco.mj_kinematics(model, measured)
 
         refresh()
+        initial_object_position = soap.data.root_link_pos_w[0].tolist()
+        initial_bin_position = tray.data.root_link_pos_w[0].tolist()
         initial_points = (object_points @ measured.xmat[object_body].reshape(3, 3).T
                           + soap.data.root_link_pos_w[0].numpy())
         initial_in_tray_frame = ((initial_points - tray.data.root_link_pos_w[0].numpy())
@@ -474,6 +509,12 @@ def run(args):
 
         return {
             "side": side,
+            "object_offset_mm": list(object_offset_mm),
+            "bin_offset_mm": list(bin_offset_mm),
+            "world_object_offset_mm": [object_offset_mm[0], object_offset_mm[1] * mirror[1]],
+            "world_bin_offset_mm": [bin_offset_mm[0], bin_offset_mm[1] * mirror[1]],
+            "initial_object_position_m": initial_object_position,
+            "initial_bin_position_m": initial_bin_position,
             "arm_joints": ARM_JOINTS, "finger_joint": FINGER_JOINT,
             "required_grip_contacts": [f"robot/{prefix}_{part}_grip_insert_link_meshcol"
                                        for part in ("palm", "finger")],
@@ -508,6 +549,10 @@ def main():
     parser.add_argument("--seconds", type=float, default=30.)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--side", choices=("left", "right"), default="left")
+    parser.add_argument("--object-offset-mm", nargs=2, type=float, default=(0, 0),
+                        metavar=("X", "Y"), help="bench-frame XY offset, each within +/-50 mm")
+    parser.add_argument("--bin-offset-mm", nargs=2, type=float, default=(0, 0),
+                        metavar=("X", "Y"), help="bench-frame XY offset, reflected in Y on right")
     parser.add_argument("--noise-mm", type=float, default=2.)
     parser.add_argument("--negative-control", action="store_true",
                         help="keep the finger open: pickup must not succeed")
@@ -524,6 +569,11 @@ def main():
         parser.error("seed must be in [0, 2**32 - 2]")
     if args.video and args.video.suffix.lower() != ".mp4":
         parser.error("video must name an MP4")
+    try:
+        fixture_positions(args.side, object_offset_mm=args.object_offset_mm,
+                          bin_offset_mm=args.bin_offset_mm)
+    except ValueError as error:
+        parser.error(str(error))
     report = run(args)
     text = json.dumps(report, indent=2, allow_nan=False)
     print(text)
