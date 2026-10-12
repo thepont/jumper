@@ -474,6 +474,38 @@ MUJOCO_GL=egl python -m tasks.jumper.five_foot.tools.pickup_check \
   --video demos/pickup-check.mp4
 ```
 
+Add `--side right` to check the other claw (`left` remains the default). The
+right-side bench drives RF J0–J3 and its finger, while LF supports the robot;
+the front shoulder pitch retains its sign and the other four joints reverse,
+as in the deployed front-arm mirror. Middle/rear leg HOME angles stay unchanged.
+The soap and tray positions reflect across the robot's centreline. Actual RF
+visual meshes are decomposed in memory using the existing slab cutter, and RF
+grip inserts receive rubber contact settings. Neither training configurations,
+checkpoints nor the shared robot asset are modified. The LF/RF palm, finger and
+insert meshes agree exactly under a local 180-degree z rotation (local CPU mesh
+probe, 2026-10-13); the physical inner RF tip pad is `pad_b`, matching LF
+`pad_f`, so grip friction follows the physical face rather than the label.
+The right bench retains the existing LF decomposition on its supporting front
+leg; this and per-construction RF decomposition cost prevent treating the two
+side sweeps as a strict symmetry or throughput comparison.
+
+```bash
+MUJOCO_GL=egl python -m tasks.jumper.five_foot.tools.pickup_check \
+  --simulated-estimates --side right --report demos/pickup-right-report.json \
+  --video demos/pickup-right.mp4
+```
+
+Measured right-side native CPU result (MuJoCo 3.11.0, 2026-10-13, seed 7,
+2 mm estimate noise): both RF inserts held the lifted soap, whole-object peak
+floor clearance was 52.5 mm, and verified release/settling inside the tray
+finished at 20.6 simulated seconds. Open-finger control did not pick up;
+detection dropout produced zero arm-target movement. The unchanged left-side
+seed-7 acceptance check also passed. A right-side sweep of seeds 0–11 passed
+only 7, 8 and 11 (3/12); the other nine failed the IK reachability guard before
+pickup. Both claws now have separate working **scripted** examples, not a
+robust learned cleanup policy or simultaneous two-claw manipulation.
+`pickup_sweep` also accepts `--side right`.
+
 It creates one upright soap at (0.25, 0.08, 0.051) m and a deliberately easier
 250 mm internal-width tray at (0.13, 0.235, 0) m, with an unrestrained robot
 standing on zero locomotion actions. The arm starts stowed, with the finger

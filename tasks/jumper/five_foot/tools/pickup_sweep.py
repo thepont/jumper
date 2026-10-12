@@ -58,6 +58,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--simulated-estimates", action="store_true", required=True)
     parser.add_argument("--seeds", nargs="+", type=int, default=list(range(12)))
+    parser.add_argument("--side", choices=("left", "right"), default="left")
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--workers", type=int, default=min(12, max(1, worker_capacity() // 2)))
     parser.add_argument("--seconds", type=float, default=30.)
@@ -82,7 +83,7 @@ def main():
         parser.error("workers must be positive and no greater than available CPUs or 64")
     if args.report.exists():
         parser.error("report already exists; choose a new path to preserve previous results")
-    cases = tuple({"seed": seed, "noise_mm": args.noise_mm, "seconds": args.seconds,
+    cases = tuple({"side": args.side, "seed": seed, "noise_mm": args.noise_mm, "seconds": args.seconds,
                    "negative_control": args.negative_control,
                    "sensor_dropout": args.sensor_dropout}
                   for seed in args.seeds * args.repeat)
@@ -94,6 +95,7 @@ def main():
     controls = sum(row["control_steps"] for row in sweep.results)
     substeps = sum(row["physics_substeps"] for row in sweep.results)
     summary = {
+        "side": args.side,
         "completed_cases": len(sweep.results),
         "successful_cases": sum(row["report"]["success"] for row in sweep.results),
         "workers": min(args.workers, len(cases)), "fresh_workers": args.fresh_workers,

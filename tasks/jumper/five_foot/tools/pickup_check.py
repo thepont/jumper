@@ -52,7 +52,7 @@ def bench_tray():
     return spec
 
 
-def config(seed=7):
+def config(seed=7, side="left"):
     from tasks.jumper.five_foot.claw import ARM_JOINTS, LF_GRASP
     from tasks.jumper.five_foot.env_cfg import env_cfg
     from tasks.jumper.five_foot.objects import (
@@ -74,10 +74,16 @@ def config(seed=7):
         tuple((LF_GRASP[j], LF_GRASP[j]) for j in ARM_JOINTS)
         + ((BENCH_OPEN, BENCH_OPEN),)
     )
+    if side not in ("left", "right"):
+        raise ValueError("side must be left or right")
+    if side == "right":
+        from .pickup_side import right_bench
+        right_bench(cfg)
+    mirror = np.array([1., -1. if side == "right" else 1., 1.])
     soap = next(s for s in SOLIDS if s.name == "soap")
     props = {
-        "soap": _prop(partial(_solid_spec, soap), (.25, .08, .051)),
-        "dropbin": _prop(bench_tray, (.13, .235, .0)),
+        "soap": _prop(partial(_solid_spec, soap), tuple(np.array([.25, .08, .051]) * mirror)),
+        "dropbin": _prop(bench_tray, tuple(np.array([.13, .235, .0]) * mirror)),
     }
     cfg.scene.entities.update(props)
     _place_props(cfg, props)
@@ -148,12 +154,24 @@ def run(args):
     from tasks.jumper.five_foot.mdp.gripper import squeeze_limited
     from tasks.jumper.five_foot.objects import BIN_WALL_T
 
+    side = getattr(args, "side", "left")
+    prefix = "RF" if side == "right" else "LF"
+    mirror = np.array([1., -1. if side == "right" else 1., 1.])
+    # Actual LF/RF palm, finger and insert vertices match exactly under this
+    # local z half-turn (CPU mesh probe, 2026-10-13). This is NOT the world
+    # reflection above; the right palm's frame is also rotated.
+    local_mirror = np.array([-1., -1., 1.]) if side == "right" else np.ones(3)
+    joint_signs = np.array([-1., 1., -1., -1.]) if side == "right" else np.ones(4)
+    finger_sign = -1. if side == "right" else 1.
+    ARM_JOINTS = tuple(n.replace("LF", prefix) for n in ARM_JOINTS)
+    FINGER_JOINT = FINGER_JOINT.replace("LF", prefix)
+
     res = resolve(backend="native", device="cpu", num_envs=1)
     use_backend(res)
     from mjlab.envs import ManagerBasedRlEnv
 
     with ExitStack() as stack, torch.inference_mode():
-        env = ManagerBasedRlEnv(cfg=config(args.seed), device="cpu")
+        env = ManagerBasedRlEnv(cfg=config(args.seed, side), device="cpu")
         stack.callback(env.close)
         env.reset(seed=args.seed)
         model = env.sim.mj_model
@@ -161,7 +179,7 @@ def run(args):
         arm = robot.find_joints(list(ARM_JOINTS), preserve_order=True)[0]
         finger = robot.find_joints([FINGER_JOINT])[0]
         claw = Claw(env)
-        palm = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "robot/LF_palm_link")
+        palm = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f"robot/{prefix}_palm_link")
         base = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "robot/base_link")
         object_body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "soap/soap")
         tray_body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "dropbin/dropbin")
@@ -196,11 +214,11 @@ def run(args):
         # kinematic state. This never changes robot or object simulator state.
         reference = mujoco.MjData(model)
         reference.qpos[:] = measured.qpos
-        for joint, value in zip(ARM_JOINTS, GRASP_ARM, strict=True):
+        for joint, value in zip(ARM_JOINTS, GRASP_ARM * joint_signs, strict=True):
             reference.qpos[model.jnt_qposadr[model.joint(f"robot/{joint}").id]] = value
-        local = FIXED_CONTACT_PALM
-        ik = PointIK(model, "robot/LF_palm_link", tuple(f"robot/{n}" for n in ARM_JOINTS),
-                     local, local_axis=claw.closing_palm.numpy(), axis_scale_m=.06)
+        local = FIXED_CONTACT_PALM * local_mirror
+        ik = PointIK(model, f"robot/{prefix}_palm_link", tuple(f"robot/{n}" for n in ARM_JOINTS),
+                     local, local_axis=claw.closing_palm.numpy() * local_mirror, axis_scale_m=.06)
         zero = torch.zeros(env.action_space.shape)
         target_arm = robot.data.joint_pos[0, arm].clone()
         raised_arm = target_arm.numpy().copy()
@@ -278,8 +296,8 @@ def run(args):
                         touching.add(model.geom(b).name)
                     elif model.geom_bodyid[b] == object_body:
                         touching.add(model.geom(a).name)
-                pinched = {"robot/LF_palm_grip_insert_link_meshcol",
-                           "robot/LF_finger_grip_insert_link_meshcol"} <= touching
+                pinched = {f"robot/{prefix}_palm_grip_insert_link_meshcol",
+                           f"robot/{prefix}_finger_grip_insert_link_meshcol"} <= touching
                 if stage == "settle" and any(name.startswith("robot/") for name in touching):
                     initial_robot_clear = False
                 clear_grasp_steps = clear_grasp_steps + 1 if pinched and floor_clearance > .015 else 0
@@ -310,14 +328,14 @@ def run(args):
                 if np.abs(robot.data.joint_pos[0, arm].numpy() - raised_arm).max() < .04:
                     transition("pregrasp", now)
             elif stage == "pregrasp":
-                goal = obj + GRASP_OFFSET + (-.05, 0, .035)
+                goal = obj + GRASP_OFFSET * mirror + (-.05, 0, .035)
                 if np.linalg.norm(goal - grip_point) < .010:
                     transition("reach", now)
             elif stage == "reach":
                 # Grip the upper part of the upright soap; its centre is lower
                 # than the opening. The vertical approach avoids sweeping a
                 # finger into it while changing the arm's orientation.
-                goal = obj + GRASP_OFFSET
+                goal = obj + GRASP_OFFSET * mirror
                 if np.linalg.norm(goal - grip_point) < .008:
                     # Evaluator diagnostic only: not supplied to the controller.
                     tilt_at_close = math.degrees(math.acos(float(np.clip(
@@ -329,7 +347,7 @@ def run(args):
             elif stage == "close":
                 goal = held_goal
                 if now - entered >= 1.:
-                    if float(robot.data.joint_pos[0, finger[0]]) > GRIPPER_CLOSED - .025:
+                    if finger_sign * float(robot.data.joint_pos[0, finger[0]]) > GRIPPER_CLOSED - .025:
                         reason = "finger closed empty"
                         transition("failed", now)
                     else:
@@ -347,14 +365,14 @@ def run(args):
                 # Centre of the small bench tray, above its rim.
                 # Even the soap's 62 mm bounding radius clears the 24 mm rim
                 # here, while the short arm can still reach across the tray.
-                object_goal = bin_pos + (.02, -.005, .095)
+                object_goal = bin_pos + np.array([.02, -.005, .095]) * mirror
                 goal = grip_point + object_goal - obj
                 if np.linalg.norm(object_goal - obj) < .012:
                     held_goal = goal.copy()
                     held_goal[2] -= .025
                     transition("lower", now)
             elif stage == "lower":
-                object_goal = bin_pos + (.02, -.005, .070)
+                object_goal = bin_pos + np.array([.02, -.005, .070]) * mirror
                 goal = grip_point + object_goal - obj
                 if (np.linalg.norm((object_goal - obj)[:2]) < .012 and
                         obj[2] - bin_pos[2] < .075 and now - entered >= .5):
@@ -375,7 +393,7 @@ def run(args):
                 points_in_bin = (world_points - bin_truth) @ bin_rotation
                 inside = bool((np.abs(points_in_bin[:, :2]) < TRAY_INNER_HALF).all() and
                               -.004 < points_in_bin[:, 2].min() < BIN_WALL_T + .008)
-                released = (float(robot.data.joint_pos[0, finger[0]]) < BENCH_OPEN + .15 and
+                released = (finger_sign * float(robot.data.joint_pos[0, finger[0]]) < BENCH_OPEN + .15 and
                             not any(name.startswith("robot/") for name in touching))
                 final_inside, final_released = inside, released
                 if inside and released and picked:
@@ -415,7 +433,7 @@ def run(args):
                 seed[ik.qadr] = last_ik_joints
                 orientation = ({"axis_plane_normal": (0, 0, 1)}
                                if stage in ("carry", "lower", "release", "verify")
-                               else {"axis_target": (0, -1, 0)})
+                               else {"axis_target": np.array([0, -1, 0]) * mirror})
                 result = ik.solve(seed, goal, **orientation)
                 last_ik_joints = result.joints.copy()
                 last_error = result.error_m
@@ -439,7 +457,8 @@ def run(args):
             closing = (stage in ("close", "lift", "carry", "lower") or
                        (stage == "failed" and closing)) and not close_open
             target = torch.full_like(angle, GRIPPER_CLOSED if closing else BENCH_OPEN)
-            robot.set_joint_position_target(squeeze_limited(target, angle, speed=speed),
+            robot.set_joint_position_target(finger_sign * squeeze_limited(
+                target, finger_sign * angle, speed=finger_sign * speed),
                                             joint_ids=finger)
             _, _, terminated, truncated, _ = env.step(zero)
             if video is not None:
@@ -454,6 +473,10 @@ def run(args):
             transition("failed", now + dt)
 
         return {
+            "side": side,
+            "arm_joints": ARM_JOINTS, "finger_joint": FINGER_JOINT,
+            "required_grip_contacts": [f"robot/{prefix}_{part}_grip_insert_link_meshcol"
+                                       for part in ("palm", "finger")],
             "success": stage == "done", "picked_up": picked, "reason": reason,
             "initially_outside_bin": initially_outside_bin,
             "initial_robot_clear": initial_robot_clear,
@@ -484,6 +507,7 @@ def main():
                         help="acknowledge that this is a privileged perception fixture")
     parser.add_argument("--seconds", type=float, default=30.)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--side", choices=("left", "right"), default="left")
     parser.add_argument("--noise-mm", type=float, default=2.)
     parser.add_argument("--negative-control", action="store_true",
                         help="keep the finger open: pickup must not succeed")
