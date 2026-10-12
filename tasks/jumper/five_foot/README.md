@@ -528,6 +528,31 @@ Before a long cleanup training run, the remaining gates are robust varied-object
 approach/placement, real camera estimates, target-directed locomotion and a
 learned arm/cleanup action contract. No training checkpoint is changed by this tool.
 
+An expanded local CPU sweep (2026-10-13, controller `9dc3936`, MuJoCo 3.11.0)
+ran seeds 0–11 at 2 mm noise, six separate processes at a time, one world per
+process. `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and
+`MJRL_CPU_THREADS` were each 1. Only seed 7 succeeded (21.00 s); all other seeds
+failed during approach with IK residuals of 15.3–35.1 mm. The estimate seed also
+seeds the environment reset, so this is not an isolated perception-noise sweep.
+No failed cycle was retried or counted as success. More parallelism increases
+test coverage; it does not turn this scripted diagnostic into parallel PPO.
+
+A timed repeat of seeds 6–11 on the local 24-logical-CPU host measured 2,078
+control world-steps and 8,312 physics substeps over 19.21 s wall time: 108.2 and
+432.7 steps/s respectively, including process startup, model construction and
+IK. Each world uses 50 Hz control and four physics substeps per control step.
+Five workers exited early on failed approaches; this is an end-to-end mixed
+batch average, **not** a six-world steady-state rate or PPO training throughput.
+
+The optional framework building block `mjrl.manipulation.plan_joint_path` now
+provides bounded joint-space search through a caller-owned collision strategy.
+Its framework tests cover clear, detoured and impossible paths and query-budget
+exhaustion. It is **not wired into this diagnostic**: exploratory integration
+did not pass physical pickup checks and was reverted, preserving the working
+controller. Static collision clearance alone was insufficient under free-base
+motion and servo tracking error; world-frame waypoint tracking then stalled.
+Further approach work must pass the physical cycle, not just the path-search tests.
+
 ### Locomotion symptoms
 
 - **The gait term stays near zero.** Expected early; it is gated on both
