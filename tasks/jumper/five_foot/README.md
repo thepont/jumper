@@ -553,6 +553,49 @@ controller. Static collision clearance alone was insufficient under free-base
 motion and servo tracking error; world-frame waypoint tracking then stalled.
 Further approach work must pass the physical cycle, not just the path-search tests.
 
+#### Queued parallel CPU checks
+
+Use persistent one-world worker processes to avoid re-importing the simulation
+stack per case and to give idle workers the next queued case:
+
+```bash
+python -m tasks.jumper.five_foot.tools.pickup_sweep \
+  --simulated-estimates --workers 12 --repeat 2 \
+  --report demos/pickup-sweep-new.json
+```
+
+The default seeds are 0–11. `--seeds 7 8 --repeat 12` selects a fixed 24-case
+timing workload; `--fresh-workers` supplies the cold-start comparison. Each
+process limits numerical/native threads to one, owns its controller state and
+rebuilds its environment per case. Results retain input order, actual executed
+step counts and failed attempts without retries. Existing report files are
+never overwritten. A wall deadline terminates only this sweep's workers;
+unrelated jobs and checkpoints are untouched. The worker limit uses the native
+backend's CPU-affinity authority, not the unrestricted host core count.
+
+Measured on the local 24-logical-CPU host, MuJoCo 3.11.0, 2026-10-13, with no
+video, identical alternating seeds 7/8 repeated twelve times:
+
+| execution | wall time | control world-steps/s |
+|---|---:|---:|
+| 6 fresh workers | 67.59 s | 212.9 |
+| 6 persistent workers | 35.34 s | 407.2 |
+| 12 persistent workers | 28.90 s | 497.8 |
+
+All three executed exactly 14,388 control steps / 57,552 physics substeps and
+retained the same per-case step counts and verdicts: twelve seed-7 successes
+and twelve seed-8 failures. This is a **2.34× matched-workload speedup**, not a
+new packing success rate. Do not compare it directly with the earlier 108.2
+steps/s mixed six-case batch, whose work distribution was different.
+
+A separate 24-case repeat of seeds 0–11 with twelve persistent workers measured
+278.5 control steps/s; the same two seed-7 successes and 22 failed approaches
+remained. Throughput depends on the case mix. At these measured rates, one
+million **scripted diagnostic** control steps takes approximately 33–60 minutes;
+100 similar checks takes around two minutes. These are raw compute estimates,
+not PPO throughput or an ETA for learning reliable packing. This runner does
+not change the one-world controller, old training code, physics or checkpoints.
+
 ### Locomotion symptoms
 
 - **The gait term stays near zero.** Expected early; it is gated on both
