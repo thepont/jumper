@@ -474,12 +474,14 @@ MUJOCO_GL=egl python -m tasks.jumper.five_foot.tools.pickup_check \
   --video demos/pickup-check.mp4
 ```
 
-It creates one upright soap and a 130 mm internal-width tray, with an unrestrained
-robot standing on zero locomotion actions. The arm starts at an experimental
-grasp-ready pose rather than the training stow. Only reset sets object poses:
-reaching and squeezing use servo targets, joint limits, a 0.45 rad/s arm target
-rate limit and the existing squeeze limiter. There are no welds or object
-attachments. Video uses the existing `ReplayVideo` recorder.
+It creates one upright soap at (0.25, 0.08, 0.051) m and a deliberately easier
+250 mm internal-width tray at (0.13, 0.235, 0) m, with an unrestrained robot
+standing on zero locomotion actions. The arm starts stowed, with the finger
+90 degrees open, and raises before approaching. The evaluator rejects initial
+robot/object contact or an object already overlapping the tray footprint.
+Only reset sets object poses: reaching and squeezing use servo targets, joint
+limits, a 0.45 rad/s arm target rate limit and the existing squeeze limiter.
+There are no welds or object attachments. Video uses `ReplayVideo`.
 
 `--simulated-estimates` is mandatory because positions come from simulation
 truth, sampled at 10 Hz with 60 ms latency and configurable noise (default 2 mm).
@@ -489,25 +491,42 @@ hardware calibration. Estimates retain their capture frame and expire after
 250 ms. Kinematics also uses ideal simulator base pose and joint readings;
 real body-motion estimation and encoder errors are not validated here.
 The shared `mjrl.manipulation` boundary validates estimates and the IK
-solver reports unreachable targets rather than claiming success. IK constrains
-position and joint limits only; it is not an orientation/collision-aware planner.
+solver reports unreachable targets rather than claiming success. IK tracks a
+measured point on the fixed rubber insert and constrains the closing direction
+during approach, then keeps it horizontal during transport. The rubber inserts
+now receive the same friction contact settings as the other jaw pieces; their
+previous normal-only, lower-priority settings let props override grip friction.
+This is still a fixed-scene
+approach, not a general collision-aware planner.
 
 The diagnostic exits nonzero on a failed grasp, stale detections, unreachable
-target, timeout or environment termination. Placement requires the object's
-oriented bounding box inside the tray, resting height, separation from the claw
-and half a second of low speed. That evaluator uses ground truth and is not a
-deployed placement detector. `--sensor-dropout` must leave arm targets unchanged;
+target, timeout or environment termination. Pickup requires both physical grip
+inserts touching while the whole object clears the floor by 15 mm for 0.2 s.
+Placement requires the whole physical collision hull inside the tray, resting
+height, an open finger, no robot contact and less than 3 mm vertex movement
+throughout half a second. Hull vertices avoid fictitious bounding-box corners
+below the floor when the rounded soap tips onto its side. That evaluator uses
+ground truth and is not a deployed placement detector.
+`--sensor-dropout` must leave arm targets unchanged;
 `--negative-control` keeps the finger open and must not count a pickup.
 
-Measured on the local native CPU backend, MuJoCo 3.11.0, seed 7 (2026-10-13):
-reach at 1.00 s, close at 4.42 s, lift at 5.42 s, failed pickup at 7.42 s.
-Maximum object rise was 3.4 mm; the soap was already tilted 79.9 degrees when
-closure began. Position-only reaching knocked it over before the grasp. The open-finger
-control also failed; missing detections produced zero arm-target movement and
-failed at 4.02 s. This is a reproducible **failure**, not successful packing.
-Before a long cleanup training run, the remaining gates are an upright grasp
-approach with orientation/collision handling and body stability, successful
-release into the tray, then camera estimates and target-directed locomotion.
+Measured on the local native CPU backend, MuJoCo 3.11.0, seed 7, 2 mm estimate
+noise (2026-10-13), with video: close at 9.36 s, lift at 10.36 s, carry at
+12.36 s, release at 19.06 s and verified placement at 20.58 s. Maximum object
+rise was 52.4 mm and whole-object floor clearance 48.9 mm. Tilt at closure was
+0.007 degrees; maximum IK position residual was 14.8 mm. The final object was
+fully inside the tray, separated from the robot, with only 0.006 mm maximum
+vertex drift across the settling window. This is one successful **scripted**
+pickup and placement, not trained cleanup.
+
+The open-finger control fails without a pickup; missing detections produce zero
+arm-target movement and fail safely. Seeds 8 and 9 fail at pregrasp with 16.2 mm
+IK residuals: the approach is not robust to other randomization/noise samples.
+The earlier 130 mm tray experiment failed before pickup, with the soap tilted
+79.9 degrees; success here does not establish placement into that narrower tray.
+Before a long cleanup training run, the remaining gates are robust varied-object
+approach/placement, real camera estimates, target-directed locomotion and a
+learned arm/cleanup action contract. No training checkpoint is changed by this tool.
 
 ### Locomotion symptoms
 

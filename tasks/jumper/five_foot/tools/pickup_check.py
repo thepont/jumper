@@ -14,6 +14,7 @@ Add --video demos/pickup-check.mp4 to use the shared replay recorder.
 from __future__ import annotations
 
 import argparse
+from collections import deque
 from contextlib import ExitStack
 from functools import partial
 import itertools
@@ -23,7 +24,17 @@ from pathlib import Path
 
 import numpy as np
 
-TRAY_INNER_HALF = .065
+TRAY_INNER_HALF = .125
+# The existing deployed arm preset opens 90 degrees from shut, inside the
+# measured finger range [-1.6, .1]. This bench does not use a walking policy.
+BENCH_OPEN = .10 - math.pi / 2
+# Collision-hull measurement, native MuJoCo 3.11.0, 2026-10-13: the sloped
+# face of LF_palm_grip_insert_link, in palm coordinates. At the reference pose
+# the upright soap clears every active robot mesh; fixed/moving insert gaps
+# are at least 1.79/6.08 mm. The legacy anvil omits this separate grip insert.
+FIXED_CONTACT_PALM = np.array([-.002474635, .099238620, -.003243786])
+GRASP_OFFSET = np.array([-.029345020, .019968078, .034235365])
+GRASP_ARM = np.array([-1.04377350, -1.53823883, .43236852, -.61391009])
 
 
 def bench_tray():
@@ -42,7 +53,7 @@ def bench_tray():
 
 
 def config(seed=7):
-    from tasks.jumper.five_foot.claw import ARM_JOINTS, GRIPPER_OPEN
+    from tasks.jumper.five_foot.claw import ARM_JOINTS, LF_GRASP
     from tasks.jumper.five_foot.env_cfg import env_cfg
     from tasks.jumper.five_foot.objects import (
         OBJECTS_NCONMAX, OBJECTS_NJMAX, PROP_CONE, PROP_IMPRATIO, SOLIDS,
@@ -59,14 +70,14 @@ def config(seed=7):
     cfg.events.pop("gripper_teleop", None)
     cfg.events.pop("claw_hold", None)
     cfg.scene.sensors = tuple(s for s in cfg.scene.sensors if s.name != "tof")
-    ready = dict(zip(ARM_JOINTS, (-.88, -1.57, -.524, .23), strict=True))
     cfg.events["hold_carried_arm"].params["ranges"] = (
-        tuple((ready[j], ready[j]) for j in ARM_JOINTS) + ((GRIPPER_OPEN, GRIPPER_OPEN),)
+        tuple((LF_GRASP[j], LF_GRASP[j]) for j in ARM_JOINTS)
+        + ((BENCH_OPEN, BENCH_OPEN),)
     )
     soap = next(s for s in SOLIDS if s.name == "soap")
     props = {
-        "soap": _prop(partial(_solid_spec, soap), (.23, .10, .051)),
-        "dropbin": _prop(bench_tray, (.23, .245, .0)),
+        "soap": _prop(partial(_solid_spec, soap), (.25, .08, .051)),
+        "dropbin": _prop(bench_tray, (.13, .235, .0)),
     }
     cfg.scene.entities.update(props)
     _place_props(cfg, props)
@@ -87,13 +98,14 @@ class SimulatedEstimates:
     never silently treated as fresh robot-frame coordinates.
     """
 
-    def __init__(self, *, noise_m, seed, dropout):
+    def __init__(self, *, noise_m, seed, dropout, visibility_radius_m=0.):
         self.noise_m = noise_m
         self.rng = np.random.default_rng(seed)
         self.dropout = dropout
         self.pending = []
         self.latest = None
         self.next_exposure = 0.
+        self.visibility_radius_m = visibility_radius_m
 
     def sample(self, now, world_point, base_pos, base_rot):
         from mjrl.manipulation import TargetEstimate
@@ -101,8 +113,10 @@ class SimulatedEstimates:
         if now + 1e-9 >= self.next_exposure:
             self.next_exposure = now + .1
             relative = base_rot.T @ (world_point - base_pos)
+            distance = float(np.linalg.norm(relative[:2]))
+            angular_radius = math.asin(min(1., self.visibility_radius_m / max(distance, .001)))
             visible = (relative[0] > .05 and
-                       abs(math.atan2(relative[1], relative[0])) < math.radians(55))
+                       abs(math.atan2(relative[1], relative[0])) < math.radians(55) + angular_radius)
             estimate = None
             if visible and not self.dropout:
                 estimate = TargetEstimate(
@@ -128,7 +142,7 @@ def run(args):
     from mjrl.manipulation import PointIK
 
     from tasks.jumper.five_foot.claw import (
-        ARM_JOINTS, FINGER_JOINT, GRIPPER_CLOSED, GRIPPER_OPEN,
+        ARM_JOINTS, FINGER_JOINT, GRIPPER_CLOSED,
     )
     from tasks.jumper.five_foot.mdp.grasp import Claw
     from tasks.jumper.five_foot.mdp.gripper import squeeze_limited
@@ -155,7 +169,11 @@ def run(args):
             raise ValueError("required robot bodies are absent")
         from tasks.jumper.five_foot.objects import SOLIDS
         solid = next(s for s in SOLIDS if s.name == "soap")
-        object_corners = np.array(list(itertools.product(*zip(*solid.bounds, strict=True))))
+        # Use the physical hull, not imaginary AABB corners. A rounded bar
+        # rotated onto its side has box corners below the floor and outside
+        # the tray even when its actual collision surface is fully contained.
+        object_points = (np.array(solid.hull) if solid.hull else
+                         np.array(list(itertools.product(*zip(*solid.bounds, strict=True)))))
         measured = mujoco.MjData(model)
 
         def refresh():
@@ -163,15 +181,30 @@ def run(args):
             mujoco.mj_kinematics(model, measured)
 
         refresh()
-        # A known-object grasp offset, derived from the existing jaw geometry.
-        # This does not set or move the object. Orientation handling is limited
-        # to the upright soap fixture; arbitrary object poses are not supported.
-        seat = claw.seat(env, "soap")[0].cpu().numpy()
-        local = measured.xmat[palm].reshape(3, 3).T @ (seat - measured.xpos[palm])
-        ik = PointIK(model, "robot/LF_palm_link", tuple(f"robot/{n}" for n in ARM_JOINTS[:3]),
-                     local)
+        initial_points = (object_points @ measured.xmat[object_body].reshape(3, 3).T
+                          + soap.data.root_link_pos_w[0].numpy())
+        initial_in_tray_frame = ((initial_points - tray.data.root_link_pos_w[0].numpy())
+                                 @ measured.xmat[tray_body].reshape(3, 3))
+        outer = TRAY_INNER_HALF + BIN_WALL_T
+        initially_outside_bin = any(
+            initial_in_tray_frame[:, axis].min() > outer or
+            initial_in_tray_frame[:, axis].max() < -outer for axis in (0, 1)
+        )
+        if not initially_outside_bin:
+            raise ValueError("pickup fixture must start with the whole object outside the tray")
+        # Choose the measured, collision-clear grasp branch on a private
+        # kinematic state. This never changes robot or object simulator state.
+        reference = mujoco.MjData(model)
+        reference.qpos[:] = measured.qpos
+        for joint, value in zip(ARM_JOINTS, GRASP_ARM, strict=True):
+            reference.qpos[model.jnt_qposadr[model.joint(f"robot/{joint}").id]] = value
+        local = FIXED_CONTACT_PALM
+        ik = PointIK(model, "robot/LF_palm_link", tuple(f"robot/{n}" for n in ARM_JOINTS),
+                     local, local_axis=claw.closing_palm.numpy(), axis_scale_m=.06)
         zero = torch.zeros(env.action_space.shape)
         target_arm = robot.data.joint_pos[0, arm].clone()
+        raised_arm = target_arm.numpy().copy()
+        raised_arm[1] = -2.4
         video = None
         if args.video:
             from mjrl.viewer.video import ReplayVideo
@@ -181,14 +214,18 @@ def run(args):
                 follow=False, lookat_height=.07,
             ))
         source = SimulatedEstimates(noise_m=args.noise_mm / 1000, seed=args.seed,
-                                    dropout=args.sensor_dropout)
+                                    dropout=args.sensor_dropout,
+                                    visibility_radius_m=float(np.linalg.norm(solid.size[:2])))
         bin_source = SimulatedEstimates(noise_m=args.noise_mm / 1000, seed=args.seed + 1,
-                                        dropout=args.sensor_dropout)
+                                        dropout=args.sensor_dropout,
+                                        visibility_radius_m=TRAY_INNER_HALF)
         stage, entered = "settle", 0.
         transitions = [{"stage": stage, "at_s": 0.}]
         initial_z = float(soap.data.root_link_pos_w[0, 2])
         peak_z = initial_z
         picked = False
+        clear_grasp_steps = 0
+        peak_floor_clearance = 0.
         reason = "deadline"
         held_goal = None
         observed_floor_z = None
@@ -196,10 +233,17 @@ def run(args):
         dt = env.step_dt
         max_error = 0.
         max_joint_step = 0.
+        max_axis_error = 0.
+        last_ik_joints = reference.qpos[ik.qadr].copy()
+        cartesian_reference = None
         last_error = None
         stale_steps = 0
-        settled_in_bin = 0
+        settle_window = deque(maxlen=math.ceil(.5 / dt) + 1)
         tilt_at_close = None
+        initial_robot_clear = True
+        final_inside = False
+        final_released = False
+        settling_drift = None
 
         def transition(next_stage, now):
             nonlocal stage, entered
@@ -217,11 +261,40 @@ def run(args):
             bin_pos = bin_source.sample(now, bin_truth, measured.xpos[base], rot)
             grip_point = measured.xpos[palm] + measured.xmat[palm].reshape(3, 3) @ local
             peak_z = max(peak_z, float(obj_truth[2]))
+            world_points = (object_points @ measured.xmat[object_body].reshape(3, 3).T
+                             + obj_truth)
+            floor_clearance = float(world_points[:, 2].min() - env.scene.env_origins[0, 2])
+            peak_floor_clearance = max(peak_floor_clearance, floor_clearance)
+            # Evaluator witness: lifted means the whole object clears the floor
+            # while both actual grip pads still touch it for at least 0.2 s.
+            touching = set()
+            if stage in ("settle", "lift", "carry", "lower", "verify"):
+                mujoco.mj_collision(model, measured)
+                for contact in measured.contact:
+                    if contact.dist > .001:
+                        continue
+                    a, b = (int(g) for g in contact.geom)
+                    if model.geom_bodyid[a] == object_body:
+                        touching.add(model.geom(b).name)
+                    elif model.geom_bodyid[b] == object_body:
+                        touching.add(model.geom(a).name)
+                pinched = {"robot/LF_palm_grip_insert_link_meshcol",
+                           "robot/LF_finger_grip_insert_link_meshcol"} <= touching
+                if stage == "settle" and any(name.startswith("robot/") for name in touching):
+                    initial_robot_clear = False
+                clear_grasp_steps = clear_grasp_steps + 1 if pinched and floor_clearance > .015 else 0
+                picked = picked or clear_grasp_steps * dt >= .2
             goal = None
+            desired_arm = None
             closing = stage in ("close", "lift", "carry", "lower") and not close_open
             if stage == "settle" and now >= 1.:
-                transition("reach", now)
-            missing = ((stage in ("reach", "close", "lift") and obj is None) or
+                if not initial_robot_clear:
+                    reason = "object touched the robot before the approach"
+                    transition("failed", now)
+                else:
+                    transition("raise", now)
+            missing = ((stage in ("raise", "pregrasp", "reach", "close", "lift", "carry", "lower")
+                        and obj is None) or
                        (stage in ("carry", "lower") and bin_pos is None))
             if missing:
                 # Stop advancing all targets, retaining grip if already carrying.
@@ -229,8 +302,22 @@ def run(args):
                 if now - entered > 3.:
                     reason = "target estimate unavailable or expired"
                     transition("failed", now)
+            elif stage == "raise":
+                # Raise the stowed arm before swinging the long fixed jaw over
+                # the object. A joint interpolation straight to pregrasp can
+                # sweep that jaw sideways through the object at floor height.
+                desired_arm = raised_arm
+                if np.abs(robot.data.joint_pos[0, arm].numpy() - raised_arm).max() < .04:
+                    transition("pregrasp", now)
+            elif stage == "pregrasp":
+                goal = obj + GRASP_OFFSET + (-.05, 0, .035)
+                if np.linalg.norm(goal - grip_point) < .010:
+                    transition("reach", now)
             elif stage == "reach":
-                goal = obj
+                # Grip the upper part of the upright soap; its centre is lower
+                # than the opening. The vertical approach avoids sweeping a
+                # finger into it while changing the arm's orientation.
+                goal = obj + GRASP_OFFSET
                 if np.linalg.norm(goal - grip_point) < .008:
                     # Evaluator diagnostic only: not supplied to the controller.
                     tilt_at_close = math.degrees(math.acos(float(np.clip(
@@ -242,8 +329,12 @@ def run(args):
             elif stage == "close":
                 goal = held_goal
                 if now - entered >= 1.:
-                    held_goal = grip_point.copy() + (0, 0, .08)
-                    transition("lift", now)
+                    if float(robot.data.joint_pos[0, finger[0]]) > GRIPPER_CLOSED - .025:
+                        reason = "finger closed empty"
+                        transition("failed", now)
+                    else:
+                        held_goal = grip_point.copy() + (-.035, 0, .055)
+                        transition("lift", now)
             elif stage == "lift":
                 goal = held_goal
                 if now - entered >= 2.:
@@ -251,38 +342,52 @@ def run(args):
                         reason = "object did not follow the lift"
                         transition("failed", now)
                     else:
-                        picked = True
                         transition("carry", now)
             elif stage == "carry":
                 # Centre of the small bench tray, above its rim.
-                goal = bin_pos + (0, 0, .13)
-                if np.linalg.norm(goal - grip_point) < .012:
+                # Even the soap's 62 mm bounding radius clears the 24 mm rim
+                # here, while the short arm can still reach across the tray.
+                object_goal = bin_pos + (.02, -.005, .095)
+                goal = grip_point + object_goal - obj
+                if np.linalg.norm(object_goal - obj) < .012:
                     held_goal = goal.copy()
-                    held_goal[2] = bin_pos[2] + .095
+                    held_goal[2] -= .025
                     transition("lower", now)
             elif stage == "lower":
-                goal = held_goal
-                if np.linalg.norm(goal - grip_point) < .012:
+                object_goal = bin_pos + (.02, -.005, .070)
+                goal = grip_point + object_goal - obj
+                if (np.linalg.norm((object_goal - obj)[:2]) < .012 and
+                        obj[2] - bin_pos[2] < .075 and now - entered >= .5):
+                    # Open and withdraw vertically together. Holding the sloped
+                    # fixed pad beside the released object, or dragging it back,
+                    # pushes the soap toward the near wall as it tips down.
+                    held_goal = grip_point.copy() + (0, 0, .035)
                     transition("release", now)
             elif stage == "release":
                 goal = held_goal
                 if now - entered >= 1.:
-                    held_goal = grip_point.copy() + (0, 0, .06)
                     transition("verify", now)
             elif stage == "verify":
                 goal = held_goal
-                # Evaluator-only truth: the complete object footprint is inside,
+                # Evaluator-only truth: the complete physical footprint is inside,
                 # resting near the tray floor, released and still for half a second.
-                object_rotation = measured.xmat[object_body].reshape(3, 3)
                 bin_rotation = measured.xmat[tray_body].reshape(3, 3)
-                corners_in_bin = ((object_corners @ object_rotation.T + obj_truth - bin_truth)
-                                  @ bin_rotation)
-                inside = (bool((np.abs(corners_in_bin[:, :2]) < TRAY_INNER_HALF).all()) and
-                          -.004 < corners_in_bin[:, 2].min() < BIN_WALL_T + .008)
-                still = float(soap.data.root_com_lin_vel_w[0].norm()) < .02
-                separated = np.linalg.norm(obj_truth - grip_point) > .045
-                settled_in_bin = settled_in_bin + 1 if inside and still and separated else 0
-                if settled_in_bin * dt >= .5:
+                points_in_bin = (world_points - bin_truth) @ bin_rotation
+                inside = bool((np.abs(points_in_bin[:, :2]) < TRAY_INNER_HALF).all() and
+                              -.004 < points_in_bin[:, 2].min() < BIN_WALL_T + .008)
+                released = (float(robot.data.joint_pos[0, finger[0]]) < BENCH_OPEN + .15 and
+                            not any(name.startswith("robot/") for name in touching))
+                final_inside, final_released = inside, released
+                if inside and released and picked:
+                    settle_window.append(world_points.copy())
+                else:
+                    settle_window.clear()
+                # Bound translation and rotation together: no physical vertex
+                # may move more than 3 mm throughout the half-second window.
+                settling_drift = (max(float(np.linalg.norm(p - settle_window[0], axis=1).max())
+                                      for p in settle_window) if settle_window else None)
+                still = (len(settle_window) == settle_window.maxlen and settling_drift < .003)
+                if still:
                     reason = "released object settled inside bin"
                     transition("done", now)
                 elif now - entered > 4.:
@@ -290,23 +395,50 @@ def run(args):
                     transition("failed", now)
 
             if goal is not None and stage not in ("failed", "done"):
-                result = ik.solve(measured.qpos, goal)
+                if stage in ("carry", "lower"):
+                    # Continue through nearby IK poses instead of asking the
+                    # short arm to jump to a distant inverse-kinematics branch.
+                    if cartesian_reference is None:
+                        cartesian_reference = grip_point.copy()
+                    delta = goal - cartesian_reference
+                    length = float(np.linalg.norm(delta))
+                    travel = (.03 if stage == "carry" else .02) * dt
+                    if length > travel:
+                        goal = cartesian_reference + delta * (travel / length)
+                # Retain the commanded reference under load. Advancing only a
+                # fraction ahead of the measured point tracks gravitational sag
+                # instead of generating the position error that supports weight.
+                cartesian_reference = goal.copy()
+                seed = measured.qpos.copy()
+                # Continue the same solution branch despite the servo lag and
+                # noisy observations. This seed never writes simulator state.
+                seed[ik.qadr] = last_ik_joints
+                orientation = ({"axis_plane_normal": (0, 0, 1)}
+                               if stage in ("carry", "lower", "release", "verify")
+                               else {"axis_target": (0, -1, 0)})
+                result = ik.solve(seed, goal, **orientation)
+                last_ik_joints = result.joints.copy()
                 last_error = result.error_m
                 max_error = max(max_error, result.error_m)
+                max_axis_error = max(max_axis_error, result.axis_error_rad)
                 if result.error_m > .015:
                     reason = f"unreachable target (IK residual {result.error_m:.4f} m)"
                     transition("failed", now)
                 else:
-                    change = np.clip(result.joints - target_arm[:3].numpy(), -.45 * dt, .45 * dt)
-                    max_joint_step = max(max_joint_step, float(np.abs(change).max()))
-                    target_arm[:3] += torch.tensor(change, dtype=target_arm.dtype)
+                    desired_arm = result.joints
+            if desired_arm is not None and stage not in ("failed", "done"):
+                change = np.clip(desired_arm - target_arm.numpy(), -.45 * dt, .45 * dt)
+                max_joint_step = max(max_joint_step, float(np.abs(change).max()))
+                target_arm += torch.tensor(change, dtype=target_arm.dtype)
             if stage not in ("done", "failed", "settle") and now - entered > 8.:
                 reason = f"{stage} timed out"
                 transition("failed", now)
             robot.set_joint_position_target(target_arm[None, :], joint_ids=arm)
             angle = robot.data.joint_pos[:, finger]
             speed = robot.data.joint_vel[:, finger]
-            target = torch.full_like(angle, GRIPPER_CLOSED if closing else GRIPPER_OPEN)
+            closing = (stage in ("close", "lift", "carry", "lower") or
+                       (stage == "failed" and closing)) and not close_open
+            target = torch.full_like(angle, GRIPPER_CLOSED if closing else BENCH_OPEN)
             robot.set_joint_position_target(squeeze_limited(target, angle, speed=speed),
                                             joint_ids=finger)
             _, _, terminated, truncated, _ = env.step(zero)
@@ -323,13 +455,19 @@ def run(args):
 
         return {
             "success": stage == "done", "picked_up": picked, "reason": reason,
+            "initially_outside_bin": initially_outside_bin,
+            "initial_robot_clear": initial_robot_clear,
+            "fully_inside_bin": final_inside, "released_clear_of_robot": final_released,
+            "settling_max_vertex_drift_m": settling_drift,
             "source": "simulated position estimates; NOT camera perception",
             "controller": "scripted bounded arm IK; zero-action standing, NOT trained cleanup",
             "negative_control": close_open, "sensor_dropout": args.sensor_dropout,
             "seed": args.seed, "noise_mm": args.noise_mm,
             "transitions": transitions, "max_object_rise_m": peak_z - initial_z,
+            "max_object_floor_clearance_m": peak_floor_clearance,
             "max_ik_error_m": max_error, "last_ik_error_m": last_error,
             "max_arm_target_step_rad": max_joint_step, "stale_steps": stale_steps,
+            "max_closing_axis_error_deg": math.degrees(max_axis_error),
             "object_tilt_at_close_deg": tilt_at_close,
             "final_object_position_m": soap.data.root_link_pos_w[0].tolist(),
             "final_grip_point_m": grip_point.tolist(),
