@@ -97,6 +97,11 @@ JAW_PIECE_GEOMS: tuple[str, ...] = tuple(
 GRIP_GEOMS: tuple[str, ...] = (
     "LF_palm_link_meshcol", "LF_finger_link_meshcol", "LF_finger_tip_link_meshcol",
     "LF_palm_pad_f_link_meshcol",
+    # V1.6.1's grip inserts are separate bodies. Without these entries the
+    # catch-all leaves them condim 1 / priority 0, so the prop overrides their
+    # rubber friction with its hard-floor value. Native CPU probe, 2026-10-13:
+    # both inserts were condim 1, priority 0; the gripping jaw was 3 / 1.
+    "LF_palm_grip_insert_link_meshcol", "LF_finger_grip_insert_link_meshcol",
 ) + JAW_PIECE_GEOMS
 
 #: Sliding, torsional and rolling friction for the jaw faces: a ridged,
