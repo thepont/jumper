@@ -4,6 +4,18 @@ The working rules for this repository live in [`CLAUDE.md`](CLAUDE.md) — comma
 architecture worth knowing before editing, and the conventions that are not visible from any one
 file. They are not Claude-specific; read that file first whatever agent you are.
 
+## Project language exception
+
+By explicit user instruction (2026-10-13), Python is permitted and preferred for
+this repository's Python-owned training, simulation, perception integration,
+tests, diagnostics and tooling. This is a standing project-specific exception
+to the global charter / Codex appendix's prohibition on new first-party Python
+and its requirement to migrate Python-owned behaviour to Rust. Do not request
+a fresh Python exception for each task here or migrate working Python merely
+to satisfy that global language preference. Keep the existing Rust deployment
+controller in Rust where appropriate. All other engineering, validation and
+safety rules remain in effect. This exception does not apply to other projects.
+
 ## Start here
 
 Jumper is the shared entry point for Train and Design. Read
