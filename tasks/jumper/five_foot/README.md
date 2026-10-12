@@ -464,6 +464,53 @@ sign; the axes are the measurement that guess stood in for.
 
 ## Where to look when it does not work
 
+### CPU pickup experiment (not a cleanup policy)
+
+The bounded manipulation diagnostic is independent of training and checkpoints:
+
+```bash
+MUJOCO_GL=egl python -m tasks.jumper.five_foot.tools.pickup_check \
+  --simulated-estimates --report demos/pickup-check-report.json \
+  --video demos/pickup-check.mp4
+```
+
+It creates one upright soap and a 130 mm internal-width tray, with an unrestrained
+robot standing on zero locomotion actions. The arm starts at an experimental
+grasp-ready pose rather than the training stow. Only reset sets object poses:
+reaching and squeezing use servo targets, joint limits, a 0.45 rad/s arm target
+rate limit and the existing squeeze limiter. There are no welds or object
+attachments. Video uses the existing `ReplayVideo` recorder.
+
+`--simulated-estimates` is mandatory because positions come from simulation
+truth, sampled at 10 Hz with 60 ms latency and configurable noise (default 2 mm).
+This is a privileged test fixture, **not working camera perception**: it has a
+simple horizontal field-of-view gate, no occlusion or image detector, and no
+hardware calibration. Estimates retain their capture frame and expire after
+250 ms. Kinematics also uses ideal simulator base pose and joint readings;
+real body-motion estimation and encoder errors are not validated here.
+The shared `mjrl.manipulation` boundary validates estimates and the IK
+solver reports unreachable targets rather than claiming success. IK constrains
+position and joint limits only; it is not an orientation/collision-aware planner.
+
+The diagnostic exits nonzero on a failed grasp, stale detections, unreachable
+target, timeout or environment termination. Placement requires the object's
+oriented bounding box inside the tray, resting height, separation from the claw
+and half a second of low speed. That evaluator uses ground truth and is not a
+deployed placement detector. `--sensor-dropout` must leave arm targets unchanged;
+`--negative-control` keeps the finger open and must not count a pickup.
+
+Measured on the local native CPU backend, MuJoCo 3.11.0, seed 7 (2026-10-13):
+reach at 1.00 s, close at 4.42 s, lift at 5.42 s, failed pickup at 7.42 s.
+Maximum object rise was 3.4 mm; the soap was already tilted 79.9 degrees when
+closure began. Position-only reaching knocked it over before the grasp. The open-finger
+control also failed; missing detections produced zero arm-target movement and
+failed at 4.02 s. This is a reproducible **failure**, not successful packing.
+Before a long cleanup training run, the remaining gates are an upright grasp
+approach with orientation/collision handling and body stability, successful
+release into the tray, then camera estimates and target-directed locomotion.
+
+### Locomotion symptoms
+
 - **The gait term stays near zero.** Expected early; it is gated on both
   `moving_gate` and `cycling_gate`, so a policy that has not started walking
   collects nothing. If it stays low while tracking improves, the policy has
