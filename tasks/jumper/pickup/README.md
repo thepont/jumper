@@ -19,7 +19,7 @@ python scripts/train.py --task jumper.pickup --backend native --device cpu \
 
 Use `--claw-side right` for a separate right-claw policy. Both sides have five
 actions, but their joint names and directions differ: checkpoints carry a side,
-input/reward version and action-order contract. A mismatch is rejected before
+input/reward/physics version and action-order contract. A mismatch is rejected before
 loading weights. Early experimental checkpoints without that contract are also
 rejected; none is deleted. Resume uses a new timestamped directory:
 
@@ -125,8 +125,35 @@ successful pickup or placement. This proves a runnable learning path, **not a
 trained cleanup policy**. After the safe-spawn correction, a first-episode
 evaluation of checkpoint 149 completed 12 valid attempts (four per size), with
 no startup-contact rejections and **zero pickups or placements**. It moved the
-arm by up to 0.96 rad and reduced grip/object-centre distance, but did not grasp;
-a longer run alone is not a guarantee of improvement.
+arm by up to 0.96 rad and reduced grip/object-centre distance, but did not grasp.
+That pilot inherited the walking task's disabled arm/chassis contacts, so the
+movement is **not evidence of physically feasible manipulation**. Its checkpoints
+are retained, but the corrected pickup physics contract rejects loading them.
+A longer run with the old physics would not resolve this defect.
+
+## Chassis collision boundary
+
+Pickup decorates the existing bench spec factory rather than modifying the
+walking model or duplicating jaw/side configuration. All five chassis components
+(base, upper shell, display, camera and ToF housing) use their full CAD meshes as
+**conservative convex envelopes**. They protect the outer surfaces without the
+inward gaps left by reduced walking hulls; they do not represent internal shell
+concavities or prove hardware fit.
+
+A separate mask channel enables both front arms' upper arm, forearm, palm,
+finger, pads and grip inserts against these envelopes. Adjacent shoulder mounts
+and stance hips keep their original exclusions. Parent filtering remains enabled:
+globally disabling it exposes intentional mounting/hull overlap. Ground,
+cross-leg contact, jaw decomposition, mass and inertia remain unchanged.
+
+Failing-first task probes ran outside the repository's framework suite, following
+`CLAUDE.md`. On the local native CPU/MuJoCo 3.11.0 backend (2026-10-13), four
+collision/geometry checks failed before the change; eight checks then passed,
+covering both configured claws, all five chassis masks, full CAD selection,
+calibrated starts and actual negative-distance contacts in obstructed joint poses.
+Mask checks alone are insufficient: physical contacts must also be generated.
+The old scripted pickup benchmark retains its original physics; its success
+rates must not be presented as validation of the corrected pickup scene.
 
 The next learning work is a grasp-first curriculum or verified demonstration
 warm-start, followed by held-out position/size checks. Then combine manipulation

@@ -10,6 +10,7 @@ class PickupRunner(MjlabOnPolicyRunner):
         return {'schema': 'jumper.pickup/1', 'side': term.cfg.side,
                 'joint_names': list(term.cfg.joint_names),
                 'object_scales': list(term.cfg.object_scales),
+                'physics': 'full-cad-chassis+distal-front-arm-contact/1',
                 'actor_inputs': 'proprioception+delayed-noisy-position-size/1',
                 'rewards': 'discounted-potentials+unsupported-pickup-settled-place/1'}
 

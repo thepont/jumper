@@ -27,6 +27,7 @@ from ..five_foot.tools.pickup_check import (
 )
 from .mdp.actions import ClawActionCfg
 from .mdp import terms
+from .collision import ChassisSpec, with_chassis_contacts
 
 
 def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
@@ -46,6 +47,8 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
     cfg.commands = {}
     cfg.curriculum = {}
     robot = cfg.scene.entities['robot']
+    robot.spec_fn = ChassisSpec(robot.spec_fn)
+    robot.collisions = tuple(with_chassis_contacts(c) for c in robot.collisions)
     stance_joints = tuple(cfg.actions['joint_pos'].actuator_names)
     stance = tuple((robot.init_state.joint_pos[n],) * 2 for n in stance_joints)
     cfg.events['hold_stance'] = EventTermCfg(
