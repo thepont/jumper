@@ -47,6 +47,78 @@ def _material():
         pytest.skip(f"no dance material installed: {e}")
 
 
+def test_paw_sit_height_reward_rejects_standing_through_sit() -> None:
+    """The small robot's sit must not score as a tracked root position."""
+    from tasks.jumper.gesture_paw.env_cfg import MEDIA as PAW_MEDIA
+    from tasks.registry import load_env_cfg
+
+    cfg = load_env_cfg("jumper.gesture_paw")
+    std = cfg.rewards["motion_global_root_pos"].params["std"]
+    clip = M.load_source(PAW_MEDIA / "paw.npz")
+    height = clip.root_pos[:, 2]
+    seated = height < 0.085
+    assert seated.any()
+    standing_height = float(height[0])
+    no_sit_score = np.exp(-np.square(standing_height - height[seated]) / std**2)
+    assert float(no_sit_score.mean()) < 0.2
+    # The deep-sit keyframe is 1.11 rad beyond the soft limits (documented in
+    # the task config). Height tracking must beat that cost with headroom for
+    # actuator power, or standing still remains the cheaper policy.
+    sit_limit_cost = abs(cfg.rewards["joint_limit"].weight) * 1.11
+    height_gain = cfg.rewards["motion_global_root_pos"].weight * (
+        1.0 - float(no_sit_score.mean())
+    )
+    assert height_gain > 2 * sit_limit_cost
+
+
+def test_paw_reference_actions_are_absolute_home_relative_targets() -> None:
+    """The clip can label actions without changing the deploy-time action seam."""
+    import torch
+    from mjlab.envs.mdp.actions import JointPositionActionCfg
+
+    from tasks.jumper.gesture_paw.tools.pretrain_actor import reference_actions
+    from tasks.registry import load_env_cfg
+
+    reference = torch.tensor([[0.7, -1.3], [1.1, -1.0]])
+    home = torch.tensor([[0.5, -1.0], [0.5, -1.0]])
+    actions = reference_actions(reference, home, scale=0.25)
+    torch.testing.assert_close(actions, torch.tensor([[0.8, -1.2], [2.4, 0.0]]))
+    torch.testing.assert_close(home + actions * 0.25, reference)
+    with pytest.raises(ValueError):
+        reference_actions(reference, home[:, :1], scale=0.25)
+    with pytest.raises(ValueError):
+        reference_actions(reference, home, scale=0.0)
+    assert type(load_env_cfg("jumper.gesture_paw").actions["joint_pos"]) is JointPositionActionCfg
+    assert type(load_env_cfg("jumper.gesture_paw", play=True).actions["joint_pos"]) is JointPositionActionCfg
+
+
+def test_paw_pretrainer_rejects_invalid_run_arguments(tmp_path) -> None:
+    """Reject malformed runs before constructing GPU physics or overwriting files."""
+    from tasks.jumper.gesture_paw.tools.pretrain_actor import pretrain
+
+    valid = {
+        "output": tmp_path / "new.pt", "num_envs": 1, "rollout_steps": 2,
+        "epochs": 1, "batch_size": 1, "learning_rate": 3e-4,
+    }
+    with pytest.raises(ValueError):
+        pretrain(**{**valid, "num_envs": 0})
+    with pytest.raises(ValueError):
+        pretrain(**{**valid, "learning_rate": float("nan")})
+    with pytest.raises(ValueError):
+        pretrain(**{**valid, "output": tmp_path / "wrong.bin"})
+
+
+def test_paw_pretrainer_can_run_without_gpu_backend() -> None:
+    """Clip imitation is usable from a clean native-only checkout too."""
+    import inspect
+
+    from tasks.jumper.gesture_paw.tools.pretrain_actor import pretrain
+
+    parameters = inspect.signature(pretrain).parameters
+    assert parameters["backend"].default == "native"
+    assert parameters["device"].default == "cpu"
+
+
 def _export_constant(name: str):
     """Read one module-level constant out of `scripts/export.py` **without
     importing it**.

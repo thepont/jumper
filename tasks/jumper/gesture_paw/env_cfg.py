@@ -38,7 +38,7 @@ EPISODE_S = 3.0
 
 def env_cfg(asset: Path | None = None, play: bool = False) -> ManagerBasedRlEnvCfg:
     """Build this task's environment config. See `jumper.dance`'s for the arguments."""
-    return dance_env_cfg(
+    cfg = dance_env_cfg(
         media=MEDIA,
         asset=asset,
         play=play,
@@ -60,8 +60,9 @@ def env_cfg(asset: Path | None = None, play: bool = False) -> ManagerBasedRlEnvC
         joint_pos_noise=0.01,
         joint_vel_noise=0.5,
         # ── Rewards ───────────────────────────────────────────────────────
-        # Positive budget 6.5 a step, as jumper.dance: mjlab's six tracking terms
-        # unchanged (5.0) plus the two joint-space terms below (1.5).
+        # The dance baseline's positive budget is 6.5 per second: six body/root
+        # terms (5.0) and the two joint-space terms below (1.5). This task later
+        # raises root-position weight from 0.5 to 2.0, making its budget 8.0.
         #
         # Joint position: jumper.dance's rule is a std at 0.44 of the clip's RMS
         # amplitude, which scores a robot standing still through the clip at
@@ -118,3 +119,13 @@ def env_cfg(asset: Path | None = None, play: bool = False) -> ManagerBasedRlEnvC
             "roll": (-0.2, 0.2), "pitch": (-0.2, 0.2), "yaw": (-0.2, 0.2),
         },
     )
+    # The inherited 0.3 m root-position width is scaled for a humanoid. This
+    # robot lowers its body only 27 mm to sit, and a standing robot scores 0.992
+    # against the seated reference at that width. Keep the shared dance recipe
+    # unchanged, but make missing this clip's sit visibly costly here. At the
+    # baseline 0.5 weight, sitting gains only 0.42 reward-rate units while the
+    # clip's joint-limit penalty alone costs about 0.55; 2.0 leaves headroom for
+    # power and torque costs.
+    cfg.rewards["motion_global_root_pos"].params["std"] = 0.02
+    cfg.rewards["motion_global_root_pos"].weight = 2.0
+    return cfg
