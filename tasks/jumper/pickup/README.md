@@ -102,6 +102,79 @@ promotion, use two held-out sets of 20 first episodes with at least 18 successes
 each, no invalid starts or intrusion failures, and retained previous-stage
 performance. These are proposed promotion gates, not measured learning results.
 
+## Demonstration warm start (CPU, opt-in)
+
+`python -m tasks.jumper.pickup.bootstrap` collects the checked left-claw
+near-reset sequence through the normal five-action boundary, fits the existing
+actor, saves a normal `PickupRunner` checkpoint, then evaluates a **fresh loaded
+NN without the teacher**. It does not change the standard PPO entry point or
+defaults, and does not convert a placement checkpoint into a grasp checkpoint.
+
+```bash
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+python -m tasks.jumper.pickup.bootstrap \
+  --output logs/jumper/jumper.pickup/bootstrap-example \
+  --episodes 24 --holdout-episodes 4 --eval-episodes 20 \
+  --epochs 400 --initial-std 0.1
+```
+
+The output directory must be new. It contains `demonstrations.pt`,
+`warm_start.pt` and `report.json`; previous code, datasets and checkpoints are
+never overwritten. Only complete qualifying episodes are kept. Timeouts,
+falls, invalid starts and chassis-intrusion failures are discarded, including
+simultaneous success/failure. Teacher/IK outputs must be finite **before**
+saturation. Commands are bounded **before stepping**, because previous raw
+commands are themselves actor inputs. Each record pairs a cloned pre-step
+117-component actor observation with the next bounded command; critic state,
+teacher clocks, contact labels and true object positions are not student inputs.
+
+Whole episodes, not neighbouring frames, form the training/validation split.
+Only training observations set normalisation statistics. Behaviour cloning
+updates the actor MLP with a separate Adam optimiser, selects the epoch with
+lowest whole-episode validation MSE, and retains the fresh critic and fresh PPO
+optimiser. The checkpoint includes the existing task contract and imitation
+provenance; current runs also record startup source hashes and resolved jitter,
+detection, physics and exploration settings. A fresh strict load must reproduce
+the fitted actor's deterministic outputs exactly before autonomous evaluation.
+Low validation MSE is not itself a pickup-success gate.
+
+Evaluation and normal replay/PPO retain the existing raw NN action convention:
+servo commands are bounded by the action term, but raw predictions remain in
+proprioception. The evaluator reports prediction overshoot rather than silently
+clipping only evaluation and making it differ from training. The scripted teacher
+is a collection-only Strategy; the evaluation port accepts observations only.
+
+Native CPU measurements, Ryzen 9 3900X/MuJoCo 3.11.0, 2026-10-13, dirty working
+checkout (not a clean-fork reproducibility claim):
+
+- The first 16-attempt collection kept 15 pickups. Its final-epoch actor achieved
+  9/12 unassisted pickups, with one intrusion rejection; this is not the stronger
+  checkpoint below.
+- `bootstrap-verified-2026-10-13/warm_start.pt`: 21/24 demonstrations qualified;
+  17 episodes trained the actor and four validated it. Epoch 30 was selected from
+  400 by validation MSE. Two disjoint first-episode seed sets (1017–1036 and
+  2017–2036) each achieved **20/20** deterministic standard-object pickups, with
+  no invalid starts or chassis-intrusion failures. The first set's maximum
+  chassis penetration was 1.659 mm, below the active 2 mm rejection threshold;
+  this is not a claim of zero contact.
+- Held-out ±2 mm position variation (3017–3036): **19/20**, with one intrusion
+  rejection at 2.032 mm. It fails the no-intrusion promotion gate.
+- Gaussian exploration std 0.6 was **not** learned by imitation: stochastic
+  evaluation (4017–4028) achieved **0/12**, with six intrusion rejections. A
+  five-update PPO continuation loaded and saved correctly with finite losses,
+  but that does not establish a reliable stochastic grasp policy.
+- A separate checkpoint changed only exploration std from 0.6 to 0.1, retaining
+  exactly the same deterministic mean. The same stochastic seed set achieved
+  **11/12**, with no invalid starts or intrusion failures. The opt-in bootstrap
+  now defaults to 0.1 and records it explicitly; ordinary task PPO still defaults
+  to 0.6. Twelve trials are not the two-set, 20-episode promotion gate.
+
+These results concern a standard object, the near reset and the left claw only.
+They do not establish arbitrary-size pickup, a stowed-arm approach, locomotion,
+right-claw pickup, bin placement or real-hardware performance. The teacher has
+timed phases; the actor has only short sensor history, not that clock. Phase
+ambiguity and off-demonstration states remain reasons to test held-out episodes.
+
 ## Measured local CPU profile
 
 On the local AMD Ryzen 9 3900X (12 physical cores, 24 logical), native MuJoCo
@@ -298,8 +371,9 @@ under the corrected contract, **not grasp learning or hardware safety**. Fourtee
 external task checks and 61 focused framework checks passed; the full suite had
 1,277 passes, 28 skips and the same 11 pre-existing failures as the prior run.
 
-The next learning work is a grasp-first curriculum or verified demonstration
-warm-start, followed by held-out position/size checks. Then combine manipulation
+Grasp-first and verified demonstration warm-start are now opt-in paths above.
+The next learning work is held-out position/size robustness and safe stochastic
+PPO continuation. Then combine manipulation
 with locomotion actions and rewards for retaining a grip while travelling, and
 finally sequence objects. Replace the synthetic frontend with measured camera
 detections before any real-robot claim. GPU throughput and hardware deployment
