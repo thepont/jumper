@@ -40,6 +40,60 @@ entry points and registry are unchanged apart from registering this new task.
 The registered Jumper asset is required; other models are rejected rather than
 silently reusing measured claw geometry.
 
+## Measured local CPU profile
+
+On the local AMD Ryzen 9 3900X (12 physical cores, 24 logical), native MuJoCo
+3.11.0, 2026-10-13, sequential five-update PPO benchmarks kept the corrected
+collision geometry, four physics substeps, 64 rollout steps, mixed sizes and
+10 mm position variation unchanged. The first two updates were excluded as
+warm-up; rates below include collection and learning, but exclude startup,
+checkpoint writing and logging overhead. These are short measurements, not
+steady-state guarantees.
+
+| Worlds | CPU workers | Control world-steps/s | Seconds/PPO update |
+|---|---|---|---|
+| 4 | 2 | 238 | 1.08 |
+| 16 | 4 | 563 | 1.82 |
+| 32 | 4 | 892 | 2.30 |
+| 32 | 8 | 945 | 2.17 |
+| 64 | 8 | 1,239 | 3.31 |
+| 64 | 12 | 1,298 | 3.16 |
+| 128 | 8 | 1,486 | 5.51 |
+| 128 | 12 | 1,587 | 5.16 |
+
+The selected 128-world/12-worker launch is 6.7 times the sequential four-world
+baseline in **experience throughput**, approximately 6,346 physics world-steps/s.
+No backend code, reward, servo, sensor frequency or collision tolerance was
+changed for this improvement. Limit BLAS/PyTorch to one thread so the native
+physics pools can use the CPU without competing with nested matrix thread pools:
+
+```bash
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+python scripts/train.py --task jumper.pickup --backend native --device cpu \
+  --num_envs 128 --cpu_threads 12 --headless --no-tensorboard \
+  --max-iterations 300 --claw-side left --position-jitter-mm 10 --object-size mixed
+```
+
+The longer local run resumes the selected benchmark's collision-enabled
+`2026-10-13_10-58-28/model_4.pt` via `--checkpoint`, in a new log directory.
+It runs 300 additional updates (indices 5 through 304): 2,457,600 new control
+world-steps. The short benchmark projects about 26 minutes of learner time;
+actual episode dynamics and other CPU users can change that estimate.
+
+At 128 worlds, native automatically strips visual-only meshes while retaining
+full CAD chassis colliders: model copies measured 76.4 -> 22.4 MiB each,
+approximately 2.80 GiB for 128 copies, excluding other runtime memory. A
+128-world/12-worker preflight on **both** claws verified full CAD collider names,
+masks, 5 ms physics / 20 ms controls, four-substep contact history, finite
+observations/rewards, intrusion failures, partial resets and checkpoint guards.
+Twenty-six native determinism/randomisation/backend-resolution checks passed.
+
+More worlds change the PPO batch: 8,192 samples per update here versus 256 at
+four worlds, still four epochs and four minibatches. Faster collection is **not**
+a measured improvement in convergence, collision avoidance or grasp success.
+Compare held-out pickup/placement and body contact at equal collected samples;
+do not compare reward or update counts alone across different world counts.
+
 ## What varies
 
 Every reset selects a real collision/mass variant of the rounded bar:
