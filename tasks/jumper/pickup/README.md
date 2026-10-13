@@ -939,9 +939,63 @@ Preflight: 30 focused external transfer/size/timeout controls passed, followed b
 observed failing before implementation. Ruff and whitespace checks passed.
 The unchanged full-framework baseline remains 1,277 passed, 28 skipped and 11
 unrelated failures. These checks validate the experiment machinery, not learning
-success. Training and comparison results are pending; record their measured
-outcomes here after completion. `experiment.json`, stage logs/results and the
+success. Results were pending when this protocol was frozen; measured outcomes
+are recorded below. `experiment.json`, stage logs/results and the
 confirmation plan/trials/report are the evidence, not wall-clock runtime alone.
+
+### Completed narrower continuation: no demonstrated improvement
+
+On the Ryzen 9 3900X/native CPU, training completed successfully in 1,536.54 s
+(25.61 minutes), followed by evaluation in 647.80 s (10.80 minutes), inside both
+budgets. All 62 frozen matched pairs / 124 episodes completed with worker exits
+[0, 0]. The raw-trial audit reproduced the report, identical starting-state
+fingerprints, checkpoint/protocol hashes, preregistered contexts and independent
+exact p-value. The old training queue and confirmation were not restarted.
+
+Collection qualified 20/32 small, 12/32 standard and 5/32 large demonstrations.
+After three whole-episode holdouts per size, fitting had 17 small, nine standard
+and only two large episodes: 28 training episodes and nine validation episodes.
+More attempts did not create a large balanced qualified dataset. Of 600 fitting
+epochs, the saved best-MSE actor came from epoch 27 (holdout MSE .068981);
+the final epoch's holdout MSE was .138243. The trainer's six-episode smoke checks
+gave 5/6 placements and 5/6 grasp retentions, not evidence of matched improvement.
+
+The independent endpoint-size primary comparison found **28/50 (56%) put-aways
+for the new actor versus 34/50 (68%) for its run 1 initializer**. There were five
+candidate-only wins and 11 initializer-only wins. The observed delta was -12
+percentage points, exact two-sided McNemar p = .210114, with conservative 95%
+delta bounds of **-35.16 to +13.19 points**. Placement improvement is
+**inconclusive**, not proven worse or equal. A material gain of ten points is
+not ruled out by these bounds, but improvement is not supported by this test.
+
+| Size | Trials | Initializer placements / pickups / intrusions | New placements / pickups / intrusions |
+|---|---:|---:|---:|
+| Small (.975) | 27 | 17 / 22 / 1 | 12 / 12 / 1 |
+| Standard (1.0) | 12 | 5 / 10 / 0 | 9 / 9 / 0 |
+| Large (1.025) | 23 | 17 / 22 / 0 | 16 / 20 / 0 |
+
+The safety/retention guard **fails**: the new actor has one small-object chassis
+intrusion (maximum penetration 2.024944 mm) and fewer observed pickups in every
+size stratum, especially small objects (12/27 versus 22/27). The initializer also
+had one small-object intrusion, at 2.224742 mm; it is a comparison baseline, not
+a hardware-safe policy. The new actor improved standard placements descriptively,
+but that does not override the primary result or the failed guard.
+
+Decision: preserve the new actor, all snapshots, dataset, trials and previous
+policies; **do not promote, widen, deploy or launch a replacement run**. This
+single continuation does not show that smaller variation plus longer fitting
+solves pickup. Any future authorised work should first address small-object grasp
+retention and obtain more qualified examples, rather than infer effectiveness
+from imitation loss or additional epochs. Cause has not been established by this
+comparison. No retention claim is made on the old +/-5% range, other shapes,
+positions, the right claw, camera hardware or independent retraining seeds.
+
+Final focused confirmation/framework checks passed (54), as did the raw-evidence
+audit, diagnostic Ruff and whitespace checks. The full framework was not rerun
+for this documentation-only review; its last recorded baseline remains 1,277
+passed, 28 skipped and 11 unrelated failures. Evidence is preserved in this run's
+`verification/` and `size-narrow-long-evidence.zip`; the final review removes the
+monitoring heartbeat without deleting experiment artifacts.
 
 ## Chassis collision boundary
 
