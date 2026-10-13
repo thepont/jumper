@@ -29,6 +29,7 @@ class ClawActionCfg(ActionTermCfg):
     training_stage: str = 'place'
     grasp_start: str = 'near'
     grip_min_samples: int | None = None
+    freeze_actor_normalization: bool = False
 
     def build(self, env):
         return ClawActions(self, env)

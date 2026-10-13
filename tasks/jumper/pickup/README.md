@@ -191,6 +191,67 @@ right-claw pickup, bin placement or real-hardware performance. The teacher has
 timed phases; the actor has only short sensor history, not that clock. Phase
 ambiguity and off-demonstration states remain reasons to test held-out episodes.
 
+## Retaining the grasp during PPO (opt-in)
+
+`--freeze-actor-normalization` explicitly adopts the grasp-only continuation
+profile: retain the loaded actor's observation transform and use a fixed
+learning rate of `3e-5`. It requires fitted actor statistics from a checkpoint;
+it refuses a fresh, unnormalised start. Actor weights, Gaussian exploration
+parameters and the critic remain trainable. Critic normalisation still updates.
+The small task-local PPO subclass specialises training-mode transitions only;
+it reuses the upstream PPO rollout, loss, optimiser and checkpoint machinery.
+No teacher, IK controller, demonstration replay loss or simulator assistance
+runs during this continuation.
+
+```bash
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+python scripts/train.py --task jumper.pickup --backend native --device cpu \
+  --num_envs 128 --cpu_threads 12 --headless --no-tensorboard \
+  --max-iterations 20 --training-stage grasp --grasp-start near \
+  --claw-side left --object-size standard --position-jitter-mm 0 \
+  --freeze-actor-normalization \
+  --checkpoint logs/jumper/jumper.pickup/bootstrap-committed-2026-10-13/warm_start.pt
+```
+
+The original physical/task checkpoint contract is unchanged. Retained
+checkpoints additionally record
+`pickup_training_policy: frozen-actor-normalization-small-step/1` and preserve
+the source imitation provenance. Unknown policy versions are refused before
+model/optimiser mutation. They can be replayed without the training flag, but
+continuing PPO without it is refused. Full checkpoint loading restores the old
+optimiser learning rate; explicit adoption reapplies `3e-5` afterwards. Ordinary
+PPO and behaviour-cloning defaults retain their existing semantics.
+
+Native CPU/3900X/MuJoCo 3.11.0, 2026-10-13, same dirty checkout as above:
+
+- Failed five-update checkpoint, seeds 6017–6020: restoring only the original
+  MLP retained **0/4** pickups; restoring only the original normaliser gave
+  **1/4**, with three intrusion failures. Restoring scaling after damaging
+  updates is not a substitute for keeping the transform stable during learning.
+- A single-variable five-update probe froze actor statistics before PPO,
+  leaving ordinary learning settings intact: **3/4**, no intrusions. A fixed
+  `3e-5` follow-up retained **4/4** on the same seeds.
+- `2026-10-13_14-27-44/model_20.pt`: 20 PPO updates/163,840 control-world steps.
+  Two new deterministic sets (7017–7036 and 8017–8036) gave **40/40** pickups;
+  stochastic actions (9017–9036) gave **20/20**; held-out ±2 mm XY positions
+  (10017–10036) gave **20/20**. All had zero invalid starts, intrusion failures
+  and measured chassis penetration. Actor normalisation buffers were bit-for-bit
+  unchanged; actor weights changed and critic statistics incorporated 163,840
+  observations. These are actual PPO updates, not a frozen-actor replay.
+- Full-state continuation for five more updates produced
+  `2026-10-13_14-33-58/model_25.pt`: **20/20** on 11017–11036, no intrusion
+  failures or measured chassis penetration. Actor statistics remained identical
+  to the warm start, critic count reached 204,800 and optimiser LR stayed `3e-5`.
+- External failing-first task probes and focused framework checks: **93 passed**.
+  Cold loads covered explicit adoption, replay without the flag, refusal of
+  unflagged training and unknown versions before parameter mutation. The full
+  suite retained 1,277 passes, 28 skips and 11 pre-existing failures.
+
+This establishes bounded pickup-skill retention, not indefinitely stable
+training or bin-placement skill. The 60-second NN replay consists of repeated
+pickup episodes: the simulator resets the object after each terminal lift.
+Those resets are not packing items away, and no teacher supplies replay actions.
+
 ## Measured local CPU profile
 
 On the local AMD Ryzen 9 3900X (12 physical cores, 24 logical), native MuJoCo

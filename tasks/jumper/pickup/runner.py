@@ -1,10 +1,39 @@
 """Keep same-width left/right checkpoints from being silently interchanged."""
 import io
+from copy import deepcopy
 import torch
 from mjlab.rl import MjlabOnPolicyRunner
+from rsl_rl.algorithms import PPO
+
+
+class FrozenActorNormalizationPPO(PPO):
+    """Specialise mode transitions, not the upstream PPO loss or optimiser."""
+
+    def train_mode(self):
+        normalizer = self._raw_actor.obs_normalizer
+        if not hasattr(normalizer, 'count') or int(normalizer.count) <= 0:
+            raise RuntimeError('retained PPO needs a checkpoint with fitted actor normalization')
+        super().train_mode()
+        # Freezing only these buffers leaves actor gradients, exploration and
+        # critic learning active. Reapply after EVERY recursive train transition.
+        normalizer.eval()
 
 
 class PickupRunner(MjlabOnPolicyRunner):
+    def __init__(self, env, train_cfg, log_dir=None, device='cpu'):
+        term = env.unwrapped.action_manager.get_term('claw')
+        self._freeze_actor_normalization = getattr(term.cfg, 'freeze_actor_normalization', False)
+        self._loaded_training_policy = None
+        self._imitation_provenance = None
+        if self._freeze_actor_normalization:
+            from .rl_cfg import retained_agent_cfg
+            profile = retained_agent_cfg().algorithm
+            train_cfg = deepcopy(train_cfg)
+            train_cfg['algorithm'].update(class_name=profile.class_name,
+                                          learning_rate=profile.learning_rate, schedule=profile.schedule)
+            self._retained_learning_rate = profile.learning_rate
+        super().__init__(env, train_cfg, log_dir, device)
+
     def contract(self):
         term = self.env.unwrapped.action_manager.get_term('claw')
         contract = {'schema': 'jumper.pickup/1', 'side': term.cfg.side,
@@ -23,7 +52,21 @@ class PickupRunner(MjlabOnPolicyRunner):
         return contract
 
     def save(self, path, infos=None):
-        return super().save(path, {**(infos or {}), 'pickup_contract': self.contract()})
+        infos = {**(infos or {}), 'pickup_contract': self.contract()}
+        if self._freeze_actor_normalization or self._loaded_training_policy is not None:
+            infos['pickup_training_policy'] = 'frozen-actor-normalization-small-step/1'
+            if self._imitation_provenance is not None:
+                infos['imitation'] = self._imitation_provenance
+        return super().save(path, infos)
+
+    def learn(self, num_learning_iterations, init_at_random_ep_len=False):
+        if self._loaded_training_policy is not None and not self._freeze_actor_normalization:
+            raise RuntimeError('retained checkpoint needs --freeze-actor-normalization to continue PPO')
+        if self._freeze_actor_normalization:
+            # Validate the fitted transform before logging/rollout side effects.
+            # The algorithm reasserts the same policy at every mode transition.
+            self.alg.train_mode()
+        return super().learn(num_learning_iterations, init_at_random_ep_len)
 
     def load(self, path, load_cfg=None, strict=True, map_location=None):
         # Restricted tensor/primitive decoding before model/optimiser mutation.
@@ -41,9 +84,22 @@ class PickupRunner(MjlabOnPolicyRunner):
             raise RuntimeError('pickup checkpoint has no validated task contract')
         if loaded['infos'].get('pickup_contract') != self.contract():
             raise RuntimeError('pickup checkpoint contract differs: use the same claw side and task version')
+        training_policy = loaded['infos'].get('pickup_training_policy')
+        if training_policy is not None and (
+                type(training_policy) is not str or
+                training_policy != 'frozen-actor-normalization-small-step/1'):
+            raise RuntimeError('pickup checkpoint has an unsupported training-policy version')
         del loaded
         snapshot.seek(0)
         infos = super().load(snapshot, load_cfg=load_cfg, strict=strict, map_location=map_location)
+        self._loaded_training_policy = training_policy
+        self._imitation_provenance = infos.get('imitation')
+        if self._freeze_actor_normalization:
+            # The common loader restores optimizer groups, including the OLD
+            # learning rate. Explicit adoption must reapply this profile AFTER it.
+            self.alg.learning_rate = self._retained_learning_rate
+            for group in self.alg.optimizer.param_groups:
+                group['lr'] = self._retained_learning_rate
         # Checkpoints restore the global training clock, not simulator state.
         # Start fresh episodes at that restored clock so stale captures and the
         # one-second settle gate cannot be skipped after a resume.

@@ -20,3 +20,17 @@ def agent_cfg():
 def runner_cls():
     from .runner import PickupRunner
     return PickupRunner
+
+
+def retained_agent_cfg():
+    """Opt-in small-step continuation; ordinary PPO and bootstrap are unchanged."""
+    cfg = agent_cfg()
+    # 3900X/native CPU, 2026-10-13: five ordinary warm-start updates gave 0/4
+    # pickups; freezing actor scaling alone retained 3/4. The 3e-5 fixed-rate
+    # profile retained 60/60 fixed-layout deterministic/stochastic
+    # pickups after 20 updates, plus 20/20 with +/-2 mm XY variation. This is
+    # bounded evidence, not a guarantee of indefinite retention.
+    cfg.algorithm.learning_rate = 3e-5
+    cfg.algorithm.schedule = 'fixed'
+    cfg.algorithm.class_name = 'tasks.jumper.pickup.runner:FrozenActorNormalizationPPO'
+    return cfg

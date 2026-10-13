@@ -19,5 +19,7 @@ def cli_args(group):
                        help="place preserves the original task; grasp ends on a verified lift")
     group.add_argument("--grasp-start", choices=("near", "reach"), default="near",
                        help="grasp only: checked pregrasp reset, or the original stowed-arm reset")
+    group.add_argument("--freeze-actor-normalization", action="store_true",
+                       help="grasp PPO: retain loaded actor scaling and use fixed 3e-5 learning rate")
     return ("claw_side", "position_jitter_mm", "detection_dropout", "object_size",
-            "training_stage", "grasp_start")
+            "training_stage", "grasp_start", "freeze_actor_normalization")

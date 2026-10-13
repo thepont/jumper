@@ -32,7 +32,7 @@ from .collision import CHASSIS_GEOMS, ChassisSpec, with_chassis_contacts
 
 def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
             position_jitter_mm=10., detection_dropout=.05, object_size='mixed',
-            training_stage='place', grasp_start='near'):
+            training_stage='place', grasp_start='near', freeze_actor_normalization=False):
     if asset is not None and Path(asset).resolve() != JUMPER_XML.resolve():
         raise ValueError('pickup geometry is calibrated only for the registered jumper asset')
     if claw_side not in ('left', 'right') or object_size not in ('mixed', 'small', 'standard', 'large'):
@@ -42,6 +42,9 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
         raise ValueError('invalid pickup stage/start; grasp-start applies only to grasp mode')
     if training_stage == 'grasp' and claw_side != 'left':
         raise ValueError('grasp curriculum is verified only for the left claw; right place mode is unchanged')
+    if (type(freeze_actor_normalization) is not bool or
+            (freeze_actor_normalization and training_stage != 'grasp')):
+        raise ValueError('freeze-actor-normalization is a boolean opt-in for grasp PPO only')
     for value, low, high, name in ((position_jitter_mm, 0, 30, 'position-jitter-mm'),
                                   (detection_dropout, 0, 1, 'detection-dropout')):
         if (isinstance(value, bool) or not isinstance(value, (int, float)) or
@@ -96,7 +99,8 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
         tray_half=TRAY_INNER_HALF, floor_thickness=BIN_WALL_T, hull=solid.hull,
         object_names=names, object_scales=scales, object_size=solid.size,
         max_chassis_penetration_m=.002, training_stage=training_stage,
-        grasp_start=grasp_start, grip_min_samples=11 if training_stage == 'grasp' else None)}
+        grasp_start=grasp_start, grip_min_samples=11 if training_stage == 'grasp' else None,
+        freeze_actor_normalization=freeze_actor_normalization)}
     from mjlab.sensor import ContactMatch, ContactSensorCfg
     prefix = 'LF' if claw_side == 'left' else 'RF'
     sensors = []
