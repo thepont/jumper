@@ -397,6 +397,80 @@ movement is **not evidence of physically feasible manipulation**. Its checkpoint
 are retained, but the corrected pickup physics contract rejects loading them.
 A longer run with the old physics would not resolve this defect.
 
+## Near-start carry/place curriculum (experimental)
+
+`--training-stage place-near` extends the checked left pregrasp reset to a
+30-second pickup → carry → release → settle objective. It uses the same standard
+object, physical jaws and collision checks, not a pre-attached object. The actor
+still receives only the existing 117 noisy/delayed sensor-history inputs; both
+object and bin detections gate actions. Completion requires qualified pickup,
+whole-hull containment, open-finger release, no robot contact and settling.
+Same-frame falls, invalid fixtures and chassis intrusion reject completion and
+its bonus. Ordinary `place` and `grasp` defaults remain unchanged.
+
+The placement checkpoint has a distinct objective/reset/qualification/action-gate
+contract. Ordinary resume still rejects a grasp checkpoint. The explicit
+`PickupRunner.transfer_grasp_actor()` operation validates compatible near-grasp
+physics, actor inputs, shapes, dtypes and finite tensors before copying only the
+actor (including fitted normalizer and exploration scale). It requires a fresh
+retained placement learner; critic, optimizer and clock remain fresh. Recorded
+source SHA-256 identifies the transfer, not proof of source performance: use an
+independently qualified source checkpoint.
+
+Collect complete qualified demonstrations, fit with source normalization frozen,
+then cold-load and evaluate the saved NN and its original pickup skill:
+
+```bash
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+  .venv/bin/python -m tasks.jumper.pickup.place_train \
+  --grasp-checkpoint logs/jumper/jumper.pickup/2026-10-13_14-33-58/model_25.pt \
+  --output logs/jumper/jumper.pickup/place-near-next \
+  --episodes 20 --holdout-episodes 4 --eval-episodes 20 --epochs 300
+```
+
+The collection-only teacher composes the checked pickup with continuous,
+position-only IK carry, lowering and open-finger withdrawal. It commands bounded
+servo actions, never attachments, object-state writes or extra actor inputs.
+Only complete non-failing placements become labels; whole episodes are held out.
+`transferred_actor.pt`, `demonstrations.pt`, `placement_warm_start.pt` and
+`report.json` are saved in a new output directory, preserving old runs.
+
+Local native CPU/MuJoCo 3.11.0 evidence, 2026-10-13:
+
+- Position-only scripted feasibility completed seed 17 in 11.88 s with zero
+  measured chassis penetration. Constraining the closing axis horizontal lost
+  the object; a no-release control received no placement credit.
+- `place-near-pilot-2026-10-13` collected **8/16** complete placements;
+  four episodes trained and four were held out. The best holdout-fit epoch was
+  replayed, not necessarily the final epoch.
+- Saved-NN unseen placement seeds 1017–1028: **0/12 placements**, with seven
+  chassis-intrusion failures. Raw outputs reached 5.73 despite bounded teacher
+  labels; the existing action term clamps servo commands, not raw history.
+- The same actor retained **9/12 pickups** on original grasp seeds 2017–2028,
+  with zero measured chassis penetration. This is a regression from the
+  separately verified source grasp policy, not a promotion candidate.
+
+Improved held-out action MSE did **not** establish closed-loop placement.
+The candidate is not ready for longer PPO, new objects, position expansion or
+hardware. Investigate coverage of carry/release observations, accumulated action
+drift and pickup rehearsal before expanding the curriculum. These are hypotheses,
+not established causes. Keep using an explicit checkpoint: newest-file selection
+is not qualification. Replay training-matched physics with `--physics-hz 200`:
+
+```bash
+MUJOCO_GL=egl .venv/bin/python scripts/play.py --task jumper.pickup \
+  --backend native --device cpu --num_envs 1 --headless --physics-hz 200 \
+  --training-stage place-near --object-size standard \
+  --checkpoint logs/jumper/jumper.pickup/place-near-pilot-2026-10-13/placement_warm_start.pt \
+  --steps 1500 --stop-on-done --video /tmp/place-near-nn.mp4
+```
+
+External failing-first stage/transfer probes and 102 focused checks passed.
+Eleven additional placement/frozen-fit checks passed after the final safeguards.
+The framework suite recorded 1,277 passed, 28 skipped and the same 11 known
+unrelated failures. Task-specific probes remain outside `tests/` under the
+repository's testing policy. No old code or checkpoints were removed.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the

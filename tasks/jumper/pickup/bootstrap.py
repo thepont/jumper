@@ -51,11 +51,11 @@ class DemoEpisode:
         obs, actions = self.observations, self.actions
         if (not isinstance(obs, torch.Tensor) or not isinstance(actions, torch.Tensor) or
                 obs.ndim != 2 or actions.ndim != 2 or obs.shape[1] != 117 or
-                actions.shape != (len(obs), 5) or not 1 <= len(obs) <= 500 or
+                actions.shape != (len(obs), 5) or not 1 <= len(obs) <= 1500 or
                 not obs.is_floating_point() or not actions.is_floating_point() or
                 not bool(torch.isfinite(obs).all() & torch.isfinite(actions).all()) or
                 bool((actions.abs() > 1).any())):
-            raise ValueError('demonstration needs finite [1..500,117] sensor inputs and bounded [N,5] actions')
+            raise ValueError('demonstration needs finite [1..1500,117] sensor inputs and bounded [N,5] actions')
 
 
 def split_episodes(episodes, holdout_count):
@@ -65,9 +65,11 @@ def split_episodes(episodes, holdout_count):
     return episodes[:-holdout_count], episodes[-holdout_count:]
 
 
-def collect(env, teacher_factory, *, seeds, max_steps=500, settle_s=1.):
+def collect(env, teacher_factory, *, seeds, max_steps=500, settle_s=1., goal='picked_up'):
     """Accept whole qualifying episodes, never failed/colliding partial traces."""
-    bounded_int(max_steps, 'max-steps', 1, 500)
+    bounded_int(max_steps, 'max-steps', 1, 1500)
+    if goal not in ('picked_up', 'placed'):
+        raise ValueError('unsupported demonstration goal')
     if env.num_envs != 1 or env.cfg.auto_reset:
         raise ValueError('demonstration collection needs one world without automatic resets')
     seeds = tuple(seeds)
@@ -98,9 +100,9 @@ def collect(env, teacher_factory, *, seeds, max_steps=500, settle_s=1.):
                 if bool((terminated | truncated).any()):
                     failed = any(bool(env.termination_manager.get_term(name)[0]) for name in
                                  ('fell_over', 'too_low', 'invalid_fixture', 'chassis_intrusion'))
-                    picked = bool(env.termination_manager.get_term('picked_up')[0]) and not failed
+                    picked = bool(env.termination_manager.get_term(goal)[0]) and not failed
                     break
-        report = {'seed': seed, 'picked_up': picked, 'seconds': (step + 1) * env.step_dt,
+        report = {'seed': seed, goal: picked, 'seconds': (step + 1) * env.step_dt,
                   'samples': len(inputs)}
         reports.append(report)
         if picked and inputs:
@@ -123,8 +125,8 @@ class LeftPickupTeacher:
         from ..five_foot.tools.pickup_check import GRASP_ARM
         self.env = env
         self.term = env.action_manager.get_term('claw')
-        if (self.term.cfg.side, self.term.cfg.training_stage, self.term.cfg.grasp_start) != (
-                'left', 'grasp', 'near'):
+        if (self.term.cfg.side != 'left' or self.term.cfg.training_stage not in ('grasp', 'place-near') or
+                self.term.cfg.grasp_start != 'near'):
             raise ValueError('teacher is verified only for left/grasp/near')
         self.model = env.sim.mj_model
         self.data = mujoco.MjData(self.model)
@@ -155,7 +157,7 @@ class LeftPickupTeacher:
         return bounded_action(action)
 
 
-def fit_actor(runner, train, holdout, *, epochs, batch_size, learning_rate, seed):
+def fit_actor(runner, train, holdout, *, epochs, batch_size, learning_rate, seed, update_normalization=True):
     """Behaviour clone only the existing actor MLP; keep the critic/PPO fresh."""
     bounded_int(epochs, 'epochs', 1, 5000)
     bounded_int(batch_size, 'batch-size', 1, 8192)
@@ -174,8 +176,13 @@ def fit_actor(runner, train, holdout, *, epochs, batch_size, learning_rate, seed
     validation_targets = torch.cat([e.actions for e in holdout]).to(device)
     train_obs = TensorDict({'actor': inputs}, batch_size=[len(inputs)])
     valid_obs = TensorDict({'actor': validation}, batch_size=[len(validation)])
+    if type(update_normalization) is not bool:
+        raise ValueError('update-normalization must be boolean')
     actor.train()
-    actor.update_normalization(train_obs)
+    if update_normalization:
+        actor.update_normalization(train_obs)
+    elif int(actor.obs_normalizer.count) <= 0:
+        raise ValueError('frozen imitation requires fitted source statistics')
     # Freeze statistics after the TRAIN split only. Validation cannot change them.
     actor.eval()
     optimizer = torch.optim.Adam(actor.mlp.parameters(), lr=learning_rate)
@@ -215,6 +222,7 @@ def fit_actor(runner, train, holdout, *, epochs, batch_size, learning_rate, seed
 def evaluate(env, policy, seeds, *, video=None):
     """Unassisted, observation-only first episodes; teacher never constructed."""
     from .mdp.safety import chassis_penetration
+    from .mdp.terms import grasp_completed
     if env.num_envs != 1 or env.cfg.auto_reset:
         raise ValueError('evaluation needs one world without automatic resets')
     seeds = tuple(seeds)
@@ -248,7 +256,11 @@ def evaluate(env, policy, seeds, *, video=None):
                 if bool((terminated | truncated).any()):
                     break
             result = {'seed': seed, 'seconds': (step + 1) * env.step_dt,
-                      'picked_up': bool(env.termination_manager.get_term('picked_up')[0]),
+                      'picked_up': bool(env.termination_manager.get_term('picked_up')[0])
+                                   if term.cfg.training_stage == 'grasp' else
+                                   bool(grasp_completed(env)[0]),
+                      'placed': bool(env.termination_manager.get_term('placed')[0])
+                                if term.cfg.training_stage != 'grasp' else False,
                       'termination': [name for name in env.termination_manager.active_terms
                                       if bool(env.termination_manager.get_term(name)[0])],
                       'max_chassis_penetration_mm': depth * 1000,
