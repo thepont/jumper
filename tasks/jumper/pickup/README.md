@@ -888,6 +888,61 @@ again reported 1,277 passed, 28 skipped and the same 11 pre-existing failures.
 No training/evaluation implementation was changed in this confirmation hand-off;
 the only tracked change is this measured documentation.
 
+## Narrower, longer continuation protocol (2026-10-14)
+
+The completed +/-5% confirmation above supports run 1's placement gain, but
+not its safety or small-object pickup retention. The user requested smaller size
+variation and a longer run. The next bounded experiment is
+`logs/jumper/jumper.pickup/size-narrow-long-2026-10-14/`, supervised by the
+external `/tmp/jumper_narrow_long_run.py` coordinator. This is one experimental
+continuation, not a restarted queue, an automatic promotion or a deployment.
+
+Continue only the run 1 placement actor (SHA-256
+`d255264e0f3c5e196cb8b1c75dc1c1e96c3e672c2c000814c9f8c1795763569c`),
+declaring its source width .05. Narrow the destination to scales .975, 1 and
+1.025. Use 96 balanced collection attempts, 32 per size, with three qualified
+whole-episode holdouts per size, seed 410017, zero XY jitter and up to 600
+imitation epochs. Collection must have more than three qualified demonstrations
+in every size stratum; otherwise stop before fitting and preserve the evidence.
+Only physically qualified placement episodes enter fitting. Physics, sensors,
+actor inputs, frozen source normalisation, objective and failure criteria stay
+unchanged. One native CPU world/thread collects demonstrations. This is
+demonstration-based fitting, not PPO training.
+
+Allow 60 minutes for collection, fitting and the trainer's small replay checks.
+Save unqualified snapshots every 100 epochs, but preselect only the final
+`placement_warm_start.pt`, restored from the best whole-episode holdout MSE.
+Longer fitting does not itself demonstrate better closed-loop control. Old
+policies, code and artifacts remain untouched, and no extra candidate snapshots
+or replacement jobs are authorised by this protocol.
+
+On successful training, reserve a separate 45-minute evaluation-only budget:
+50 fresh IID small/large draws plus 12 standard scenarios, matched between the
+run 1 initializer and the new actor, 124 episodes total. Freeze the 62 scenarios
+before training with sampler seed 403014 and disjoint noise seeds from the
+previous confirmation. Two CPU workers, one world/native/PyTorch thread each,
+rotate policy order; check identical observed/physical starting fingerprints and
+checkpoint/protocol hashes, and publish trials exclusively. The independent
+comparison concerns these two fixed policies at +/-2.5%, not improved performance
+on the old +/-5% distribution or the training algorithm across retraining seeds.
+
+Require 62 completed matched pairs and worker exit codes [0, 0] before interpreting
+the exact two-sided McNemar test (one comparison, alpha .05). Conservative 95%
+delta bounds subtract two exact .975 win/loss probability intervals. Keep the
+ten-percentage-point material-gain threshold. Failure to reject is not equality.
+Any intrusion, fall, too-low or invalid-fixture outcome, per-size pickup
+regression, or standard placement regression blocks the combined improvement
+claim and promotion. No observed failures would not prove hardware safety.
+
+Preflight: 30 focused external transfer/size/timeout controls passed, followed by
+54 confirmation/framework checks; the two new orchestration controls were
+observed failing before implementation. Ruff and whitespace checks passed.
+The unchanged full-framework baseline remains 1,277 passed, 28 skipped and 11
+unrelated failures. These checks validate the experiment machinery, not learning
+success. Training and comparison results are pending; record their measured
+outcomes here after completion. `experiment.json`, stage logs/results and the
+confirmation plan/trials/report are the evidence, not wall-clock runtime alone.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
