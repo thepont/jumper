@@ -63,6 +63,7 @@ points at it.
 | [`bundle-manual`](.claude/skills/bundle-manual/SKILL.md) | translating a built bundle's `manual.en.json` into Chinese and packing it into the `.app` — after every `scripts/deploy.py` build |
 | [`robot-task-design`](.claude/skills/robot-task-design/SKILL.md) | defining objectives, rewards, observations and perception/planning responsibilities before implementing a robot decision task |
 | [`rl-experiment`](.claude/skills/rl-experiment/SKILL.md) | running bounded training experiments and evaluating policy improvements, curricula and robustness with comparable evidence |
+| [`robot-model-check`](.claude/skills/robot-model-check/SKILL.md) | checking frames, joint mappings, kinematics, dynamics, stance and controller timing before tuning around a model mismatch |
 
 A new skill gets a row here; `tests/test_layout.py` fails until it has one.
 
