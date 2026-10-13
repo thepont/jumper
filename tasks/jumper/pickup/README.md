@@ -483,9 +483,10 @@ transfer from the original qualified grasp scope starts this new curriculum.
 This is not a collision-prevention guarantee and does not turn the NN into a
 placement policy.
 
-3900X/native CPU, MuJoCo 3.11.0, 2026-10-13: twelve paired fixed-layout trials
-(seeds 1017–1028, original saved placement actor) produced **0/12 placements**
-in both modes. The first batched comparison gave 6 versus 1 intrusion failures;
+3900X/native CPU, MuJoCo 3.11.0, 2026-10-13: twelve paired near-layout trials
+(seeds 1017–1028, original saved placement actor, **±10 mm XY variation**)
+produced **0/12 placements** in both modes. The first batched comparison gave
+6 versus 1 intrusion failures;
 repeating with a fresh global clock for each episode gave **4/12 raw-history
 versus 2/12 bounded-history** failures. Peak raw NN output in the fresh-clock
 comparison fell from 6.12 to 2.97. Episode grouping/capture timing affects the
@@ -493,6 +494,11 @@ numbers: this is bounded diagnostic evidence, not a general safety guarantee.
 The unchanged default and raw diagnostic values are covered by external
 acceptance probes, observed failing before the feature was added. New-feedback
 save/load and rejection of old-feedback checkpoints passed integration checks.
+The first diagnostic inherited the environment's 10 mm default; it was not
+the fixed layout used to train the source. Repeating all twelve fresh-clock
+pairs with **explicitly zero position jitter** gave **7/12 raw-history versus
+0/12 bounded-history** intrusion failures, again **0/12 placements** in both
+modes. Do not confuse improvement in failure rate with learned placement.
 
 ### Optional pickup rehearsal
 
@@ -511,6 +517,8 @@ using the existing four placement training episodes, with versus without
 13 compatible pickup rehearsal episodes, retained **11/12 versus 8/12** pickups
 on unseen seeds 4017–4028. Both achieved **0/6 placements** on seeds 3017–3022
 and each had four placement intrusion failures; neither had a pickup intrusion.
+Both evaluation environments used **±10 mm position variation** (their default);
+these were not the original fixed-layout retention seeds.
 Rehearsal improved pickup retention in this bounded check, not carry/release.
 These runs used original raw feedback, deliberately isolating rehearsal from
 the bounded-feedback experiment. They are not qualified cleanup policies.
@@ -532,6 +540,36 @@ documented above; this turn did not rerun the full suite. New demonstrations
 still require physical qualification, and phase-aware recovery or collision-free
 path planning has not yet been implemented. No hidden simulator phase is fed
 to the actor and no hardware deployment is authorised by these experiments.
+
+### Larger fixed-layout placement pilot
+
+`place-near-bounded-32-2026-10-13` used explicit **zero position jitter**, the
+same standard object, source grasp actor and frozen input normalization. Of
+32 new teacher attempts (seeds 33–64), **16 qualified placements** were saved;
+eight episodes trained and eight were held out. Epoch 22 had the best holdout
+action MSE (0.08337), and was saved rather than the final epoch 300.
+
+Cold-loaded NN evaluation on seeds 1033–1040 achieved **3/8 placements**, with
+zero chassis-intrusion failures. Original grasp-scope evaluation on seeds
+2033–2040 retained **7/8 pickups**, also without intrusion. A separate
+per-episode fresh-clock audit of the placement seeds again achieved **3/8**,
+although the successful seeds changed (1034, 1037 and 1039): capture timing
+remains a source of variation. These are overlapping seed sets, not sixteen
+independent successful trials.
+
+An independent fixed-layout MP4 replay qualified seed 1034 in **17.76 s** with
+real pickup, release, containment, settling and zero measured penetration.
+Only the saved NN controlled actions; no teacher or IK ran during replay.
+This is partial learned placement, not reliable cleanup, different-object
+generalisation, locomotion or hardware validation.
+
+A further diagnostic fit combined those eight placement training episodes with
+pickup rehearsal and bounded feedback. With ±10 mm evaluation variation it
+retained **12/12 pickups**, but placed **0/6 objects** (seeds 5033–5038 and
+6033–6044). That candidate is separate, not promoted over the 3/8 placement
+candidate, and its different seeds/layout are not a controlled comparison.
+Adding rehearsal can preserve grasping while still failing to learn release;
+stage-specific recovery and realistic phase estimation remain unfinished.
 
 ## Chassis collision boundary
 
