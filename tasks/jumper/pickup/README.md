@@ -1063,6 +1063,48 @@ as did Ruff. No new task-specific tests or production changes were added to the
 repository. Results remain pending. The last full-framework baseline is unchanged:
 1,277 passed, 28 skipped and 11 unrelated failures.
 
+#### Recovery collection stopped before fitting
+
+On the Ryzen 9 3900X/native CPU, the bounded diagnostic/collection worker stopped
+after 721.93 s (12.03 minutes), exit code 1 without timeout. All 32 permitted
+small-object collection attempts completed, yielding only nine qualified whole
+placements against the preregistered target of 12. The explicit insufficient-data
+guard stopped fitting; no new actor, fit report or confirmation was produced.
+The planned 124 confirmation episodes were **not attempted**, not failed. All
+nine qualified trajectories and every attempted collection report are preserved.
+
+All 16 diagnostic NN episodes completed with matched initial fingerprints:
+the run 1 initializer pinched and picked up in 8/8 cases, placing 6/8; the failed
+narrower actor pinched in 8/8 but picked up and placed in only 4/8. Both had only
+placement-success or timeout terminations in this diagnostic set. This identifies
+the pinch-to-qualified-lift transition as a useful investigation target; a brief
+dual-pad contact is not proof of a stable unsupported grasp. It does not establish
+the physical cause or an independent statistical improvement claim.
+
+Collection recorded qualifying grasp witnesses in 24/32 attempts but whole
+placement in 9/32. Thus 15 attempts reached a grasp witness without qualifying
+placement. The collector did not store carry/release phase transitions, final
+contact witnesses or failure termination names per attempted teacher episode;
+its reports cannot distinguish slipping, poor tray alignment, early release,
+collision or failure to settle. That evidence gap must remain explicit. Mean
+raw-action overshoot fractions in the NN diagnostics were .12729 for run 1 and
+.07656 for the failed narrower actor; overshoot alone does not explain why the
+newer actor qualified fewer lifts.
+
+Decision: preserve all policies and partial collection evidence; do not relax
+qualification, fit nine examples in place of the target, automatically retry,
+promote or deploy. Any next authorised diagnosis should examine contact duration,
+actual jaw angle/effort, ground/rim support and object slip through the lift,
+then carry alignment, release timing and settling. Side-by-side replay and
+phase/contact traces are more informative than another blind longer fit. The
+old shortage of large-object examples remains unresolved.
+
+The final artifact audit checked frozen input/source hashes, all eight diagnostic
+pairs, all 32 collection reports and nine restricted-decoded qualified records.
+Focused recovery controls and whitespace checks passed; no production code or
+physics changed and the full framework was not rerun. Results are published in
+`small-grasp-recovery-evidence.zip`; the completed-run heartbeat is removed.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
