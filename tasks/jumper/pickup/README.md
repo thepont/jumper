@@ -804,6 +804,90 @@ budget measured separately from collection/fitting. The collector's inconsistent
 qualification also needs investigation before more queued fits. These are next
 steps, not changes applied to this completed queue; no replacement run was launched.
 
+#### Completed fixed-policy confirmation (2026-10-14)
+
+The saved candidates were evaluated without additional training under a frozen
+protocol in `logs/jumper/jumper.pickup/size-confirmation-2026-10-14/`.
+`plan.json` reserves 62 previously unused matched scenarios: 50 random
+draws from the 50/50 smaller/larger size mixture (21 small, 29 large realised),
+plus 12 standard-size retention checks. Noise seeds were sampled uniformly
+without replacement from an unused range. All three saved policies ran every
+scenario, with rotating execution order, fresh episode clocks and identical
+initial observation/qpos/qvel fingerprints. Each finished trial was atomically
+published without replacing prior evidence. No optional stopping, checkpoint
+selection, teacher actions or post-hoc sample extension was used.
+
+On the Ryzen 9 3900X, two native CPU workers (one world and one native/PyTorch
+thread each) completed all **186 episodes** in **1,137.26 seconds** (18.95 minutes),
+inside a separate 45-minute evaluation budget. Both exit codes were zero.
+Physics/control remained 200/50 Hz, with the same full-CAD intrusion checks,
+qualified pickup, whole-hull placement/release/settling predicate, zero XY jitter,
+2 mm synthetic detection noise and 5% dropout. Actor inputs, weights and the
+original reference checkpoint's checksum were unchanged throughout.
+
+| Policy | Varied-size placements / 50 | Standard placements / 12 | Chassis intrusion failures / all 62 |
+|---|---:|---:|---:|
+| Retained epoch-100 reference | 4 | 4 | 0 |
+| Queue run 1, fitted epoch 14 | 32 | 6 | 1 |
+| Queue run 4, fitted epoch 23 | 8 | 2 | 8 |
+
+The primary endpoint was placement on the 50 varied-size scenarios, compared
+with the reference using an [exact paired McNemar test](https://www.statsmodels.org/stable/generated/statsmodels.stats.contingency_tables.mcnemar.html).
+Bonferroni correction covered both candidates (two-sided alpha .025 each).
+Conservative simultaneous 95% bounds on the placement probability difference
+subtract [exact binomial confidence bounds](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.binomtest.html)
+for candidate-only/reference-only successes, using .9875 confidence per cell
+and a union bound across the four cells. The sampling unit is a scenario,
+not a correlated timestep; per-size counts below are descriptive guard checks.
+
+Run 1 gained **56 percentage points** (64% versus 8%). It uniquely succeeded
+on 29 matched scenarios and uniquely lost one; corrected p = **1.15e-7**.
+The simultaneous gain interval was **+26.0 to +75.0 percentage points**, supporting
+a material improvement larger than the predeclared ten-point threshold in this
+fixed evaluation distribution. This is strong evidence of improved learned
+placement for this saved actor, not merely lower imitation loss or a chosen video.
+
+However, the **combined safety/retention improvement is rejected** by its
+predeclared guard: small-object pickups fell to **14/21 versus 20/21**, and one
+small-object episode latched chassis intrusion at **2.026 mm** penetration.
+Its large-object placements were 22/29 versus 2/29, small-object placements
+10/21 versus 2/21, and standard placements 6/12 versus 4/12. Neither the improved
+placement aggregate nor the statistical test overrides those safety/retention
+failures. `improvement_supported=False` in the report denotes this composite
+guard; it must not be read as absence of a placement improvement.
+
+Run 4 gained eight points, but corrected p = **.7754**, with a simultaneous
+interval of **-17.0 to +31.3 points**. Placement improvement is **inconclusive**;
+the data neither establish equality nor rule out a ten-point gain. It also fails
+the combined guard: eight intrusion failures (one standard, seven large),
+standard placements 2/12 versus 4/12, and lower pickups on both small and large
+objects. Its maximum penetration was 2.049 mm. The reference had no intrusion
+failures, but reached 0.577 mm penetration on a large-object episode; zero
+failures do not prove zero contact or hardware safety.
+
+Decision: preserve both candidates and the reference, with **no automatic
+promotion, widening or hardware deployment**. Run 1 is the evidence-backed
+placement candidate for future small-object grasp/safety work. The confirmation
+does not cover independent aspect ratios, other object classes, random positions,
+the right claw or real-camera perception, and it does not establish the training
+algorithm's performance across independent retraining seeds.
+
+The external acceptance probes were observed red before implementation and
+passed all 11 controls, including sparse-result uncertainty, misleading one-win
+gains, stale/corrupt resume data and mismatched starts. The nine-episode runtime
+smoke passed all matching-state checks without an improvement decision. A final
+audit rebuilt the report from all 186 raw trial files, checked frozen source and
+checkpoint hashes, and independently reproduced the exact p-values by counting
+binomial probabilities. The monitoring heartbeat was removed after completion;
+no replacement experiment was started. All source/probe copies and raw evidence
+are retained beside the report.
+
+Final verification: 52 focused framework/probe checks passed, along with pickup
+and diagnostic Ruff checks and `git diff --check`. The complete framework suite
+again reported 1,277 passed, 28 skipped and the same 11 pre-existing failures.
+No training/evaluation implementation was changed in this confirmation hand-off;
+the only tracked change is this measured documentation.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
