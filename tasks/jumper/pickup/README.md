@@ -997,6 +997,72 @@ passed, 28 skipped and 11 unrelated failures. Evidence is preserved in this run'
 `verification/` and `size-narrow-long-evidence.zip`; the final review removes the
 monitoring heartbeat without deleting experiment artifacts.
 
+### Small-object grasp recovery protocol (2026-10-14)
+
+After the failed narrower continuation, the user authorised further work on
+small-object grasp retention and qualified examples. One new experiment is
+`logs/jumper/jumper.pickup/small-grasp-recovery-2026-10-14/`, driven externally by
+`/tmp/jumper_grasp_recovery.py`. All prior artifacts and policies are preserved.
+The hypothesis is that fresh qualified small-object examples plus witnessed
+pickup-stage rehearsal may retain grasp skill better than whole-placement-only
+fitting. This is a bounded hypothesis test, not an established root cause.
+
+First compare the run 1 initializer and failed narrower actor on eight matched
+small-object diagnostic scenarios (seeds 610017–610024). Record first dual-pad
+pinch, first qualified unsupported lift, minimum grip-point/object-centre
+distance, raw-action overshoot and existing completion/failure outcomes. Verify
+identical starting fingerprints. Diagnostic witnesses remain privileged logging
+only, never actor inputs; the canonical evaluator drives the unassisted policies.
+These scenarios are diagnosis data, not independent confirmation evidence.
+
+Then collect up to 32 fresh small-object teacher attempts (seeds 710017–710048),
+stopping after 12 qualified whole placements. Persist each attempt report and
+qualified trajectory separately, including a physically witnessed grasp time;
+failed/colliding attempts never contribute labels. If the target is missed,
+preserve partial evidence and stop before fitting, without retries or relaxed
+criteria. The teacher is collection-only and is absent during NN evaluation.
+
+Keep the prior narrower run's qualified whole-placement dataset and its original
+28-train/nine-holdout partition. Add nine fresh whole episodes and their nine
+pickup prefixes to training; reserve the other three fresh episodes and their
+prefixes for validation. A prefix ends at the actual qualifying grasp witness,
+not an arbitrary percentage of the trajectory. Full episode and prefix always
+belong to the same split; repeated prefixes are intentional phase weighting,
+not extra independent episodes. The old shortage of large-object training
+episodes remains a limitation; this experiment targets small-object retention.
+
+Transfer only run 1's actor, explicitly declaring source variation .05, into
+the existing .025 destination contract. Reuse the existing fitter for up to
+150 epochs, batch size 512, learning rate .001, seed 710017, with frozen source
+normalisation and fresh learner state. Select only the best-holdout-MSE final
+saved actor; verify a cold-load output match. Change no production code, rewards,
+success criteria, physics, servo limits, sensors, action feedback or inputs.
+
+Allow 45 minutes total for diagnostics, collection and fitting, then a separate
+45-minute evaluation-only budget. Freeze 50 fresh IID small/large draws plus
+12 standard scenarios with sampler seed 503014 before any fitting, disjoint
+from previous confirmations and the diagnostic/collection seeds. Compare the
+saved actor with run 1 in 62 matched pairs / 124 episodes, using the existing
+fixed-policy evaluator protocol, two CPU workers and one world/thread each.
+Require complete records, matching starts, unchanged hashes and worker exits
+[0, 0]. Use the exact paired two-sided placement test at alpha .05, conservative
+95% delta bounds, and the existing ten-point material-gain threshold. Any
+candidate intrusion/fall/invalid/too-low event, per-size pickup regression or
+standard placement regression fails the combined guard. No automatic promotion,
+widening, hardware deployment or replacement run is authorised.
+
+[Deep Learning, chapter 11: Practical Methodology](https://www.deeplearningbook.org/contents/guidelines.html)
+supports using application-level metrics and instrumentation before incremental
+changes. Here the application metrics are physical pickup, put-away and failures,
+not imitation MSE alone. The preceding rising holdout error is consistent with
+overfitting but does not establish the cause of closed-loop grasp loss.
+
+The two new external recovery controls were observed failing before implementation;
+71 focused recovery/rehearsal/transfer/confirmation/framework checks then passed,
+as did Ruff. No new task-specific tests or production changes were added to the
+repository. Results remain pending. The last full-framework baseline is unchanged:
+1,277 passed, 28 skipped and 11 unrelated failures.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
