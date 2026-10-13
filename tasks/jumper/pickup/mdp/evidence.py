@@ -9,7 +9,7 @@ from .safety import chassis_penetration
 class PickupEvidence:
     def __init__(self, env, *, side, local_point, finger_ids, finger_sign,
                  open_angle, tray_half, floor_thickness, hull, objects,
-                 max_chassis_penetration_m):
+                 max_chassis_penetration_m, grip_min_samples=None):
         self.env, self.side = env, side
         self.local_point = torch.tensor(local_point, device=env.device, dtype=torch.float32)
         prefix = 'LF' if side == 'left' else 'RF'
@@ -19,6 +19,8 @@ class PickupEvidence:
         self.hull = torch.tensor(hull, device=env.device, dtype=torch.float32)
         self.objects = objects
         self.max_chassis_penetration_m = max_chassis_penetration_m
+        self.grip_min_samples = (math.ceil(.2 / env.step_dt) if grip_min_samples is None
+                                 else grip_min_samples)
         self.last_step = torch.full((env.num_envs,), -1, device=env.device, dtype=torch.long)
         self.reset_step = torch.zeros_like(self.last_step)
         self.grip_steps = torch.zeros_like(self.last_step)
@@ -93,7 +95,7 @@ class PickupEvidence:
         # to the carried palm subtree, excluding tray/terrain/other legs.
         grasp = eligible & self.pinched & unsupported & (self.clearance > .015)
         self.grip_steps[fresh] = torch.where(grasp, self.grip_steps + 1, 0)[fresh]
-        self.picked[fresh] |= self.grip_steps[fresh] >= math.ceil(.2 / env.step_dt)
+        self.picked[fresh] |= self.grip_steps[fresh] >= self.grip_min_samples
         self.inside[:] = ((in_bin[:, :, :2].abs() < self.tray_half).all(dim=(1, 2)) &
                           (in_bin[:, :, 2].amin(dim=1) > -.004) &
                           (in_bin[:, :, 2].amin(dim=1) < self.floor_thickness + .008))

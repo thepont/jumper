@@ -7,12 +7,20 @@ from mjlab.rl import MjlabOnPolicyRunner
 class PickupRunner(MjlabOnPolicyRunner):
     def contract(self):
         term = self.env.unwrapped.action_manager.get_term('claw')
-        return {'schema': 'jumper.pickup/1', 'side': term.cfg.side,
+        contract = {'schema': 'jumper.pickup/1', 'side': term.cfg.side,
                 'joint_names': list(term.cfg.joint_names),
                 'object_scales': list(term.cfg.object_scales),
                 'physics': 'full-cad-chassis+distal-front-arm-contact+substep-intrusion/2',
                 'actor_inputs': 'proprioception+delayed-noisy-position-size/1',
                 'rewards': 'discounted-potentials+unsupported-pickup-settled-place/1'}
+        if getattr(term.cfg, 'training_stage', 'place') == 'grasp':
+            contract.update(objective='grasp-first/1', start=term.cfg.grasp_start,
+                            reset_profile='checked-left-pregrasp/1' if term.cfg.grasp_start == 'near'
+                                          else 'original-left-stow/1',
+                            qualification_samples=term.cfg.grip_min_samples,
+                            action_gate='object-only/1',
+                            rewards='discounted-reach-grip-lift+qualified-pickup-bonus/1')
+        return contract
 
     def save(self, path, infos=None):
         return super().save(path, {**(infos or {}), 'pickup_contract': self.contract()})

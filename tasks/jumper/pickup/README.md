@@ -40,6 +40,68 @@ entry points and registry are unchanged apart from registering this new task.
 The registered Jumper asset is required; other models are rejected rather than
 silently reusing measured claw geometry.
 
+## Grasp-first stage (opt-in)
+
+`--training-stage grasp --grasp-start near` starts the left arm at the checked
+open pregrasp pose, with the object independently on the floor. Only reset writes
+poses and servo targets. The actor still controls all five actions; there is no
+scripted IK controller, attachment, post-reset object teleport or extra force in
+training. The one-second settling/contact-free-start gate, unsupported pickup
+witness and full chassis collision checks remain active. No privileged grip or
+completion label is added to the 117 actor inputs.
+
+This stage has a 10-second deadline and rewards reach, grip and lift progress,
+then a one-shot completion bonus. It does **not** reward or terminate on bin
+placement. Completion needs both grip inserts, the whole hull above 15 mm, no
+external support, valid fixture/trajectory and no simultaneous physical failure.
+Eleven successive 50 Hz qualifying samples span at least 200 ms between first
+and last; this is sampled contact evidence, not proof of uninterrupted contact
+between physics substeps. The legacy place mode retains its original qualifier.
+Bonus weight 1000 delivers 20 reward at the 20 ms control period; hovering or
+holding indefinitely cannot farm potential-shaping income.
+
+Grasp motion requires a usable **object** detection, not a tray detection. The
+tray estimate remains in the observation layout, and the placement mode retains
+its original both-detection gate. Lost required detections stop new target
+updates, not physical servo motion. The new objective, reset profile, eleven-
+sample qualification, action gate and reward version are recorded in the grasp
+checkpoint contract; placement checkpoints remain unchanged and cannot be
+silently resumed as grasp checkpoints.
+
+Start a fresh standard-object/fixed-layout pilot, not a resume of model_304:
+
+```bash
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+python scripts/train.py --task jumper.pickup --backend native --device cpu \
+  --num_envs 128 --cpu_threads 12 --headless --no-tensorboard \
+  --max-iterations 100 --training-stage grasp --grasp-start near \
+  --claw-side left --object-size standard --position-jitter-mm 0
+
+MUJOCO_GL=egl python scripts/play.py --task jumper.pickup --backend native \
+  --device cpu --num_envs 1 --training-stage grasp --grasp-start near \
+  --claw-side left --object-size standard --position-jitter-mm 0 \
+  --checkpoint <grasp-checkpoint.pt> --physics-hz 200 --headless \
+  --steps 500 --stop-on-done --video demos/grasp-first-nn.mp4
+```
+
+Native CPU feasibility probes (MuJoCo 3.11.0, 2026-10-13) used scripted commands
+through the same bounded action term, **not a learned policy**. Left small,
+standard and large variants qualified at 4.12/4.78/5.58 seconds with 25.10/27.61/
+22.02 mm floor clearance and zero chassis penetration. The stricter new grasp
+stage qualified the standard object at 4.92 seconds with 32.98 mm clearance.
+Open-finger and no-lift controls timed out with no pickup. Right-claw close/lift
+attempts did not qualify; this opt-in curriculum is deliberately left-only until
+a right-specific sequence is verified. Existing right placement remains available.
+
+Progress manually, changing one difficulty at a time: fixed standard object,
+small held-out position variation, size variants, then the original stowed-arm
+start (`--grasp-start reach`) and finally placement. There is no automatic
+promotion or unchecked interpolation between arm poses. Near/reach checkpoint
+contracts differ; explicit actor-only transfer is not yet implemented. Before
+promotion, use two held-out sets of 20 first episodes with at least 18 successes
+each, no invalid starts or intrusion failures, and retained previous-stage
+performance. These are proposed promotion gates, not measured learning results.
+
 ## Measured local CPU profile
 
 On the local AMD Ryzen 9 3900X (12 physical cores, 24 logical), native MuJoCo

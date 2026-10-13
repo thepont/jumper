@@ -23,7 +23,7 @@ from ..five_foot.claw import GRIPPER_CLOSED
 from ..five_foot.mdp.events import hold_carried_arm
 from ..five_foot.objects import BIN_WALL_T, SOLIDS, _prop, _solid_spec
 from ..five_foot.tools.pickup_check import (
-    BENCH_OPEN, FIXED_CONTACT_PALM, GRASP_OFFSET, TRAY_INNER_HALF, config, fixture_positions,
+    BENCH_OPEN, FIXED_CONTACT_PALM, GRASP_ARM, GRASP_OFFSET, TRAY_INNER_HALF, config, fixture_positions,
 )
 from .mdp.actions import ClawActionCfg
 from .mdp import terms
@@ -31,11 +31,17 @@ from .collision import CHASSIS_GEOMS, ChassisSpec, with_chassis_contacts
 
 
 def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
-            position_jitter_mm=10., detection_dropout=.05, object_size='mixed'):
+            position_jitter_mm=10., detection_dropout=.05, object_size='mixed',
+            training_stage='place', grasp_start='near'):
     if asset is not None and Path(asset).resolve() != JUMPER_XML.resolve():
         raise ValueError('pickup geometry is calibrated only for the registered jumper asset')
     if claw_side not in ('left', 'right') or object_size not in ('mixed', 'small', 'standard', 'large'):
         raise ValueError('invalid claw side or object size mode')
+    if (training_stage not in ('place', 'grasp') or grasp_start not in ('near', 'reach') or
+            (training_stage == 'place' and grasp_start != 'near')):
+        raise ValueError('invalid pickup stage/start; grasp-start applies only to grasp mode')
+    if training_stage == 'grasp' and claw_side != 'left':
+        raise ValueError('grasp curriculum is verified only for the left claw; right place mode is unchanged')
     for value, low, high, name in ((position_jitter_mm, 0, 30, 'position-jitter-mm'),
                                   (detection_dropout, 0, 1, 'detection-dropout')):
         if (isinstance(value, bool) or not isinstance(value, (int, float)) or
@@ -49,6 +55,13 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
     robot = cfg.scene.entities['robot']
     robot.spec_fn = ChassisSpec(robot.spec_fn)
     robot.collisions = tuple(with_chassis_contacts(c) for c in robot.collisions)
+    if training_stage == 'grasp':
+        cfg.episode_length_s = 10.
+        if grasp_start == 'near':
+            pose = tuple(float(q) for q in GRASP_ARM) + (BENCH_OPEN,)
+            hold = cfg.events['hold_carried_arm'].params
+            hold['ranges'] = tuple((q, q) for q in pose)
+            robot.init_state.joint_pos.update(zip(hold['asset_cfg'].joint_names, pose, strict=True))
     stance_joints = tuple(cfg.actions['joint_pos'].actuator_names)
     stance = tuple((robot.init_state.joint_pos[n],) * 2 for n in stance_joints)
     cfg.events['hold_stance'] = EventTermCfg(
@@ -82,7 +95,8 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
         dropout=detection_dropout, local_point=tuple(FIXED_CONTACT_PALM * local_sign),
         tray_half=TRAY_INNER_HALF, floor_thickness=BIN_WALL_T, hull=solid.hull,
         object_names=names, object_scales=scales, object_size=solid.size,
-        max_chassis_penetration_m=.002)}
+        max_chassis_penetration_m=.002, training_stage=training_stage,
+        grasp_start=grasp_start, grip_min_samples=11 if training_stage == 'grasp' else None)}
     from mjlab.sensor import ContactMatch, ContactSensorCfg
     prefix = 'LF' if claw_side == 'left' else 'RF'
     sensors = []
@@ -133,6 +147,20 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
     cfg.terminations['invalid_fixture'] = TerminationTermCfg(func=terms.outcome, params={'kind': 'invalid'})
     cfg.terminations['chassis_intrusion'] = TerminationTermCfg(
         func=terms.outcome, params={'kind': 'chassis_intrusion'})
+    if training_stage == 'grasp':
+        # Same physical pickup witness; a smaller goal and calibrated reset,
+        # not a pre-held object. Eleven 50 Hz samples span at least 200 ms.
+        cfg.rewards = {kind: RewardTermCfg(
+            func=terms.PotentialReward, weight=weight,
+            params=shaping | {'kind': kind, 'discount': DISCOUNT})
+            for kind, weight in (('reach', 2.), ('grip', 4.), ('lift', 8.))}
+        cfg.rewards['picked_up'] = RewardTermCfg(func=terms.reward, weight=1000.,
+                                                params=shaping | {'kind': 'picked'})
+        cfg.rewards['action_rate'] = RewardTermCfg(func=env_mdp.action_rate_l2, weight=-.005)
+        cfg.terminations.pop('placed')
+        # Added AFTER all failures so completion cannot override a simultaneous
+        # fall/intrusion. Reward and terminal share the same completion predicate.
+        cfg.terminations['picked_up'] = TerminationTermCfg(func=terms.outcome, params={'kind': 'picked'})
     cfg.metrics = {name: MetricsTermCfg(func=terms.metric, params={'kind': kind}, reduce='max')
                    for name, kind in (('picked_up', 'picked'), ('placed', 'success'),
                                       ('invalid_fixture', 'invalid'), ('grip_contact', 'pinched'))}

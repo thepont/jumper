@@ -56,6 +56,8 @@ def reward(env, *, kind, grasp_offset, reach_std_m, carry_std_m, lift_target_m, 
         return (evidence.picked & evidence.inside & evidence.released).float()
     if kind == 'placed':
         return evidence.success.float()
+    if kind == 'picked':
+        return grasp_completed(env).float()
     raise ValueError(f'unknown pickup reward {kind!r}')
 
 
@@ -87,6 +89,19 @@ class PotentialReward:
         return result
 
 
+def grasp_completed(env):
+    """Qualifying pickup pays nothing on a simultaneous physical failure.
+
+    Grasp completion is evaluated after the existing failure terms. It is also
+    reused after the termination pass for metrics and the one-shot bonus.
+    """
+    evidence = claw(env).evidence
+    evidence.update()
+    failed = torch.stack([env.termination_manager.get_term(name)
+                           for name in ('fell_over', 'too_low', 'invalid_fixture', 'chassis_intrusion')], 1).any(dim=1)
+    return evidence.picked & evidence.valid_trajectory & ~evidence.invalid_fixture() & ~failed
+
+
 def outcome(env, *, kind):
     term = claw(env)
     evidence = term.evidence
@@ -95,6 +110,8 @@ def outcome(env, *, kind):
         return evidence.invalid_fixture()
     if kind == 'chassis_intrusion':
         return ~evidence.valid_trajectory
+    if kind == 'picked' and getattr(term.cfg, 'training_stage', 'place') == 'grasp':
+        return grasp_completed(env)
     return getattr(evidence, kind)
 
 

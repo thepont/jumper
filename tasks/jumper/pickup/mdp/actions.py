@@ -26,6 +26,9 @@ class ClawActionCfg(ActionTermCfg):
     object_scales: tuple[float, ...]
     object_size: tuple[float, ...]
     max_chassis_penetration_m: float
+    training_stage: str = 'place'
+    grasp_start: str = 'near'
+    grip_min_samples: int | None = None
 
     def build(self, env):
         return ClawActions(self, env)
@@ -48,7 +51,8 @@ class ClawActions(ActionTerm):
             env, side=cfg.side, local_point=cfg.local_point, finger_ids=self.joints[-1:],
             finger_sign=self.finger_sign, open_angle=cfg.open_angle,
             tray_half=cfg.tray_half, floor_thickness=cfg.floor_thickness, hull=cfg.hull,
-            objects=self, max_chassis_penetration_m=cfg.max_chassis_penetration_m)
+            objects=self, max_chassis_penetration_m=cfg.max_chassis_penetration_m,
+            grip_min_samples=cfg.grip_min_samples)
 
     @property
     def action_dim(self):
@@ -77,7 +81,9 @@ class ClawActions(ActionTerm):
             raise ValueError('claw actions must be finite with shape [num_envs, 5]')
         self._raw[:] = actions
         bounded = actions.clamp(-1, 1)
-        ready = (self.detections.usable().all(dim=1) &
+        usable = self.detections.usable()
+        detected = usable[:, 0] if self.cfg.training_stage == 'grasp' else usable.all(dim=1)
+        ready = (detected &
                  ((self._env.common_step_counter - self.evidence.reset_step) * self._env.step_dt > 1.))
         arm = self.targets[:, :4] + bounded[:, :4] * self.cfg.arm_speed * self._env.step_dt
         arm = arm.clamp(self.limits[:, :4, 0], self.limits[:, :4, 1])

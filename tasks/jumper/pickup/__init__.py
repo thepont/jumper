@@ -15,4 +15,9 @@ def cli_args(group):
                        help="synthetic detection dropout probability, in [0, 1]")
     group.add_argument("--object-size", choices=("mixed", "small", "standard", "large"),
                        default="mixed", help="physical size variants, sampled anew on reset")
-    return ("claw_side", "position_jitter_mm", "detection_dropout", "object_size")
+    group.add_argument("--training-stage", choices=("place", "grasp"), default="place",
+                       help="place preserves the original task; grasp ends on a verified lift")
+    group.add_argument("--grasp-start", choices=("near", "reach"), default="near",
+                       help="grasp only: checked pregrasp reset, or the original stowed-arm reset")
+    return ("claw_side", "position_jitter_mm", "detection_dropout", "object_size",
+            "training_stage", "grasp_start")
