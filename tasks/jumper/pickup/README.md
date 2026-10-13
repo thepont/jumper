@@ -168,6 +168,22 @@ checkout (not a clean-fork reproducibility claim):
   **11/12**, with no invalid starts or intrusion failures. The opt-in bootstrap
   now defaults to 0.1 and records it explicitly; ordinary task PPO still defaults
   to 0.6. Twelve trials are not the two-set, 20-episode promotion gate.
+- The next independent stochastic set at std 0.1 (5017–5036) achieved **19/20**
+  but had one intrusion rejection at 2.040 mm. Lower noise helps, but still fails
+  the no-intrusion gate; do not treat it as certified safe PPO exploration.
+- The committed workflow produced
+  `bootstrap-committed-2026-10-13/warm_start.pt` from source `d955ac1`, with source
+  hashes and resolved settings captured before collection. A 30-epoch run
+  reproduced **20/20** on 1017–1036. Its actor mean and normalisation tensors are
+  exactly equal to the stronger checkpoint above; only the Gaussian std differs.
+  Use this explicit checkpoint for replay, not an automatic newest-PPO search.
+
+Do not replace the verified warm start with a merely loadable PPO smoke
+checkpoint. Both five-update continuations were bounded compatibility checks;
+finite losses and successful saving are not evidence that grasp skill survived.
+At std 0.1, `2026-10-13_13-52-11/model_5.pt` achieved **0/4** deterministic
+pickups on 6017–6020, while the preserved warm start achieved **4/4** on those
+same seeds. Keep the warm start; PPO skill retention needs separate work.
 
 These results concern a standard object, the near reset and the left claw only.
 They do not establish arbitrary-size pickup, a stowed-arm approach, locomotion,
