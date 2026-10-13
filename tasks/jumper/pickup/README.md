@@ -699,6 +699,43 @@ as success. The NN learns the verified demonstrations; NN-only evaluation never
 constructs the teacher. No new reward or scripted policy is inserted at replay.
 Use a 15-minute collection/fitting deadline and preserve partial logs on timeout.
 
+#### Serial experiment queue
+
+`python -m tasks.jumper.pickup.size_queue --output <new-directory> --runs 5
+--minutes 45` queues at most five serial jobs inside a 45-minute overall budget.
+Each job has a 15-minute training-plus-evaluation budget. The queue starts from
+the explicit retained epoch-100 checkpoint above, not whichever checkpoint is
+newest. Its `queue.json` is atomically updated as jobs progress; every job has
+a separate directory, training log, dataset, checkpoints and per-size reports.
+
+Each job makes 12 physical demonstration attempts per size and holds out two
+qualified whole episodes per size. Fewer than three successes in any size fails
+collection; it must not train a supposedly mixed-size actor on reference-only
+examples. All narrow collections start at a fresh clock. The existing teacher
+owns labels only, and inference remains the noisy-observation NN.
+
+`--placement-checkpoint` and `--source-size-variation` let the canonical trainer
+continue from an explicitly retained placement actor with a fresh critic and
+optimizer. The source's side, physics, observations, objective, history and
+declared size range must match; ordinary resume is still exact-match. Transfer
+reuses the same guarded writer/validation path as the original grasp transfer.
+
+For every new job, the reference and candidate are evaluated on the same newly
+reserved seeds (12 per size). A candidate is retained only with zero measured
+penetration/failure, no per-size placement or pickup regression, and at least
+one strict improvement. Otherwise it is marked `rejected-preserved`; nothing is
+deleted. A retained candidate widens only if the absolute ladder gate also
+passes. Unsafe candidates shrink one rung, as far as ±2.5%; safe release failures
+keep the range and retry with new collection seeds. Only size distribution and
+dataset samples mutate, not reward weights, robot mechanics or sensor truth.
+
+The queue stops at its run/time limit and requests review. Timed-out children
+are reaped by the subprocess deadline; evaluations check the deadline before
+each bounded physical episode, so shutdown may exceed it by the final episode.
+Rejected or failed jobs never replace the incumbent. All queued comparisons
+are selection evidence: retained candidates still need a separate confirmation
+set before any improvement claim, broader curriculum or hardware promotion.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the

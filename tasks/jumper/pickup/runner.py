@@ -70,6 +70,13 @@ class PickupRunner(MjlabOnPolicyRunner):
         source_contract['object_scales'] = list(DEFAULT_OBJECT_SCALES)
         return self._transfer_actor(path, source_contract, 'grasp-to-near-placement-actor-only/1')
 
+    def transfer_placement_actor(self, path, *, source_size_variation=None):
+        """Continue a retained actor across size ranges with a fresh learner."""
+        from .env_cfg import size_scales
+        source_contract = self.contract(training_stage='place-near')
+        source_contract['object_scales'] = list(size_scales(source_size_variation))
+        return self._transfer_actor(path, source_contract, 'near-placement-size-curriculum-actor-only/1')
+
     def _transfer_actor(self, path, source_contract, schema):
         term = self.env.unwrapped.action_manager.get_term('claw')
         if (term.cfg.training_stage != 'place-near' or not self._freeze_actor_normalization or
@@ -84,7 +91,7 @@ class PickupRunner(MjlabOnPolicyRunner):
         if (not isinstance(payload, dict) or not isinstance(payload.get('infos'), dict) or
                 payload['infos'].get('pickup_contract') != source_contract or
                 payload['infos'].get('pickup_training_policy') != 'frozen-actor-normalization-small-step/1'):
-            raise RuntimeError('source must be a compatible retained left near-grasp checkpoint')
+            raise RuntimeError('source must match the explicit retained actor-transfer contract')
         state = payload.get('actor_state_dict')
         if not isinstance(state, dict) or not all(
                 isinstance(value, torch.Tensor) and bool(torch.isfinite(value).all()) for value in state.values()):

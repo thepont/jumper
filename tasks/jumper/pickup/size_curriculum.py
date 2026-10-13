@@ -3,7 +3,7 @@ import math
 
 from .bootstrap import bounded_int
 
-LEVELS = (.05, .10, .20)
+LEVELS = (.025, .05, .10, .20)
 
 
 def next_variation(current, results_by_size):
@@ -39,3 +39,32 @@ def next_variation(current, results_by_size):
         passed &= sum(row['picked_up'] for row in rows) >= 10
     index = LEVELS.index(current)
     return LEVELS[min(index + 1, len(LEVELS) - 1)] if passed else current
+
+
+def queue_decision(current, reference_by_size, candidate_by_size):
+    """Keep only safe per-size nonregressions; mutate one distribution parameter."""
+    # Both reports pass the same integrity boundary before scoring. Paired seeds
+    # are deliberate for a comparison; distinct seeds are required within each.
+    next_variation(current, reference_by_size)
+    proposed = next_variation(current, candidate_by_size)
+    safe, nonregression, improved = True, True, False
+    for size, candidate in candidate_by_size.items():
+        reference = reference_by_size[size]
+        if {r['seed'] for r in candidate} != {r['seed'] for r in reference}:
+            raise ValueError('reference and candidate need matched evaluation seeds')
+        safe &= all(r['max_chassis_penetration_mm'] == 0 and not any(name in r['termination']
+            for name in ('chassis_intrusion', 'invalid_fixture', 'fell_over', 'too_low'))
+            for r in candidate)
+        for outcome in ('placed', 'picked_up'):
+            old, new = sum(r[outcome] for r in reference), sum(r[outcome] for r in candidate)
+            nonregression &= new >= old
+            improved |= new > old
+    retain = bool(safe and nonregression and improved)
+    if not safe:
+        proposed = LEVELS[max(0, LEVELS.index(current) - 1)]
+    elif not retain:
+        proposed = current
+    return {'retain_candidate': retain, 'next_variation': proposed,
+            'status': 'retained-experimental' if retain else 'rejected-preserved',
+            'reason': 'unsafe' if not safe else 'per-size-regression-or-no-gain' if not retain
+                      else 'safe-per-size-improvement'}

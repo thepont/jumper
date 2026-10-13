@@ -122,7 +122,12 @@ class LeftPlacementTeacher:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--grasp-checkpoint', type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('--grasp-checkpoint', type=Path)
+    source.add_argument('--placement-checkpoint', type=Path,
+                        help='actor-only continuation from a compatible placement policy')
+    parser.add_argument('--source-size-variation', type=float, default=None,
+                        help='size range of the placement source; absent means the original scales')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--episodes', type=int, default=20)
     parser.add_argument('--holdout-episodes', type=int, default=4)
@@ -146,6 +151,11 @@ def main():
     bounded_int(args.seed, 'seed', 0, 2**31 - 2128)
     from .env_cfg import size_scales
     scales = size_scales(args.size_variation)
+    size_scales(args.source_size_variation)
+    if args.grasp_checkpoint is not None and args.source_size_variation is not None:
+        raise ValueError('source-size-variation applies only to a placement checkpoint')
+    if args.size_variation is not None and (args.episodes % 3 or args.holdout_episodes % 3):
+        raise ValueError('mixed-size attempts and holdout counts must divide evenly across three sizes')
     from mjrl.backend.resolve import resolve
     from mjrl.backend.select import use_backend
     use_backend(resolve(backend='native', device='cpu', num_envs=1, cpu_threads=1))
@@ -171,12 +181,34 @@ def main():
     env = ManagerBasedRlEnv(cfg, device='cpu')
     try:
         runner = PickupRunner(RslRlVecEnvWrapper(env), asdict(agent_cfg()), device='cpu')
-        runner.transfer_grasp_actor(args.grasp_checkpoint)
+        if args.grasp_checkpoint is not None:
+            runner.transfer_grasp_actor(args.grasp_checkpoint)
+        else:
+            runner.transfer_placement_actor(args.placement_checkpoint,
+                                           source_size_variation=args.source_size_variation)
         runner.save(str(args.output / 'transferred_actor.pt'))
         norm_before = {k: v.clone() for k, v in runner.alg.actor.obs_normalizer.state_dict().items()}
-        episodes, reports = collect(env, LeftPlacementTeacher, seeds=range(args.seed, args.seed + args.episodes),
-                                     max_steps=1500, goal='placed')
-        train, holdout = split_episodes(episodes, args.holdout_episodes)
+        if args.size_variation is None:
+            episodes, reports = collect(env, LeftPlacementTeacher,
+                seeds=range(args.seed, args.seed + args.episodes), max_steps=1500, goal='placed')
+            train, holdout = split_episodes(episodes, args.holdout_episodes)
+        else:
+            episodes, reports, train, holdout = [], [], [], []
+            attempts = args.episodes // 3
+            reset_params = env.event_manager.get_term_cfg('reset_pickup_layout').params
+            for index, size in enumerate(('small', 'standard', 'large')):
+                reset_params['object_size_mode'] = size
+                accepted, rows = collect(env, LeftPlacementTeacher,
+                    seeds=range(args.seed + index * attempts, args.seed + (index + 1) * attempts),
+                    max_steps=1500, goal='placed', fresh_clock=True)
+                for row in rows:
+                    row.update(object_size=size, object_scale=scales[index], fresh_clock=True)
+                selected, validation = split_episodes(accepted, args.holdout_episodes // 3)
+                episodes.extend(accepted)
+                reports.extend(rows)
+                train.extend(selected)
+                holdout.extend(validation)
+            reset_params['object_size_mode'] = 'mixed'
         grasp_train, grasp_holdout = [], []
         if args.grasp_demonstrations is not None:
             grasp_train, grasp_holdout = load_grasp_rehearsal(

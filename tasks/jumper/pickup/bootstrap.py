@@ -65,7 +65,7 @@ def split_episodes(episodes, holdout_count):
     return episodes[:-holdout_count], episodes[-holdout_count:]
 
 
-def collect(env, teacher_factory, *, seeds, max_steps=500, settle_s=1., goal='picked_up'):
+def collect(env, teacher_factory, *, seeds, max_steps=500, settle_s=1., goal='picked_up', fresh_clock=False):
     """Accept whole qualifying episodes, never failed/colliding partial traces."""
     bounded_int(max_steps, 'max-steps', 1, 1500)
     if goal not in ('picked_up', 'placed'):
@@ -79,8 +79,12 @@ def collect(env, teacher_factory, *, seeds, max_steps=500, settle_s=1., goal='pi
         bounded_int(seed, 'seed', 0, 2**31 - 1)
     if not isinstance(settle_s, (int, float)) or not np.isfinite(settle_s) or settle_s < 0:
         raise ValueError('settle-s must be finite and nonnegative')
+    if type(fresh_clock) is not bool:
+        raise ValueError('fresh-clock must be boolean')
     episodes, reports = [], []
     for seed in seeds:
+        if fresh_clock:
+            env.common_step_counter = 0
         obs, _ = env.reset(seed=seed)
         teacher = teacher_factory(env)
         inputs, labels = [], []
