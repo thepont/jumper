@@ -2,6 +2,7 @@
 import argparse
 from dataclasses import asdict
 import hashlib
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -11,6 +12,57 @@ import torch
 from tensordict import TensorDict
 
 from .bootstrap import LeftPickupTeacher, bounded_action, bounded_int, collect, evaluate, fit_actor, split_episodes
+from .bootstrap import DemoEpisode
+
+
+def load_grasp_rehearsal(path, placement_train, placement_holdout, source_contract):
+    """Load qualified whole episodes; keep validation seeds out of BOTH goals."""
+    with path.open('rb') as source:
+        contents = source.read(32 * 1024 * 1024 + 1)
+    if len(contents) > 32 * 1024 * 1024:
+        raise ValueError('grasp demonstrations exceed 32 MiB')
+    data = torch.load(io.BytesIO(contents), weights_only=True, map_location='cpu')
+    if (not isinstance(data, dict) or data.get('schema') != 'jumper.pickup.demonstrations/1' or
+            data.get('contract') != source_contract):
+        raise ValueError('grasp demonstrations need the compatible qualified grasp contract')
+    episodes, reports = data.get('episodes'), data.get('reports')
+    if (not isinstance(episodes, list) or not 2 <= len(episodes) <= 128 or
+            not isinstance(reports, list) or not 2 <= len(reports) <= 128):
+        raise ValueError('grasp demonstrations need bounded episodes and qualification reports')
+    qualified = {}
+    for report in reports:
+        if not isinstance(report, dict) or 'seed' not in report:
+            raise ValueError('invalid grasp qualification report')
+        bounded_int(report['seed'], 'seed', 0, 2**31 - 1)
+        if report['seed'] in qualified:
+            raise ValueError('duplicate grasp qualification seed')
+        qualified[report['seed']] = report.get('picked_up') is True
+    parsed = {}
+    for item in episodes:
+        if not isinstance(item, dict) or not {'seed', 'actor', 'actions'} <= item.keys():
+            raise ValueError('invalid grasp episode')
+        episode = DemoEpisode(item['seed'], item['actor'], item['actions'])
+        if episode.seed in parsed or not qualified.get(episode.seed, False):
+            raise ValueError('duplicate or unqualified grasp episode')
+        parsed[episode.seed] = episode
+    groups = []
+    for name in ('train_seeds', 'holdout_seeds'):
+        ids = data.get(name)
+        if not isinstance(ids, list) or not ids or len(ids) > 128:
+            raise ValueError('invalid grasp episode split')
+        for seed in ids:
+            bounded_int(seed, 'seed', 0, 2**31 - 1)
+        if len(set(ids)) != len(ids) or not set(ids) <= parsed.keys():
+            raise ValueError('invalid grasp split membership')
+        groups.append(set(ids))
+    train_ids, held_ids = groups
+    if train_ids & held_ids or train_ids | held_ids != parsed.keys():
+        raise ValueError('grasp split must partition whole episodes')
+    train_ids -= {e.seed for e in placement_holdout}
+    held_ids -= {e.seed for e in placement_train}
+    if not train_ids or not held_ids:
+        raise ValueError('cross-goal exclusion left no grasp train or holdout episodes')
+    return ([parsed[i] for i in sorted(train_ids)], [parsed[i] for i in sorted(held_ids)])
 
 
 class LeftPlacementTeacher:
@@ -78,6 +130,9 @@ def main():
     parser.add_argument('--epochs', type=int, default=300)
     parser.add_argument('--seed', type=int, default=17)
     parser.add_argument('--position-jitter-mm', type=float, default=0.)
+    parser.add_argument('--bounded-action-history', action='store_true')
+    parser.add_argument('--grasp-demonstrations', type=Path,
+                        help='optional compatible whole-episode pickup rehearsal dataset')
     args = parser.parse_args()
     bounded_int(args.episodes, 'episodes', 2, 128)
     bounded_int(args.holdout_episodes, 'holdout-episodes', 1, args.episodes - 1)
@@ -93,7 +148,8 @@ def main():
     from .rl_cfg import agent_cfg
     from .runner import PickupRunner
     cfg = env_cfg(play=True, training_stage='place-near', object_size='standard',
-                  position_jitter_mm=args.position_jitter_mm, freeze_actor_normalization=True)
+                  position_jitter_mm=args.position_jitter_mm, freeze_actor_normalization=True,
+                  bounded_action_history=args.bounded_action_history)
     cfg.auto_reset = False
     args.output.mkdir(parents=True, exist_ok=False)
     torch.set_num_threads(1)
@@ -112,12 +168,21 @@ def main():
         episodes, reports = collect(env, LeftPlacementTeacher, seeds=range(args.seed, args.seed + args.episodes),
                                      max_steps=1500, goal='placed')
         train, holdout = split_episodes(episodes, args.holdout_episodes)
+        grasp_train, grasp_holdout = [], []
+        if args.grasp_demonstrations is not None:
+            grasp_train, grasp_holdout = load_grasp_rehearsal(
+                args.grasp_demonstrations, train, holdout, runner.contract(training_stage='grasp'))
         data = {'schema': 'jumper.pickup.placement-demonstrations/1', 'contract': runner.contract(),
                 'episodes': [{'seed': e.seed, 'actor': e.observations, 'actions': e.actions} for e in episodes],
                 'reports': reports, 'train_seeds': [e.seed for e in train], 'holdout_seeds': [e.seed for e in holdout]}
+        data['grasp_rehearsal'] = {
+            'source_contract': runner.contract(training_stage='grasp'),
+            'train': [{'seed': e.seed, 'actor': e.observations, 'actions': e.actions} for e in grasp_train],
+            'holdout': [{'seed': e.seed, 'actor': e.observations, 'actions': e.actions} for e in grasp_holdout]}
         dataset = args.output / 'demonstrations.pt'
         torch.save(data, dataset)
-        fit = fit_actor(runner, train, holdout, epochs=args.epochs, batch_size=512,
+        fit = fit_actor(runner, train + grasp_train, holdout + grasp_holdout,
+                        epochs=args.epochs, batch_size=512,
                         learning_rate=.001, seed=args.seed, update_normalization=False)
         if not all(torch.equal(v, runner.alg.actor.obs_normalizer.state_dict()[k]) for k, v in norm_before.items()):
             raise RuntimeError('placement fitting changed the retained input transform')
@@ -125,6 +190,9 @@ def main():
                       'dataset_sha256': hashlib.sha256(dataset.read_bytes()).hexdigest(),
                       'train_seeds': data['train_seeds'], 'holdout_seeds': data['holdout_seeds'],
                       'position_jitter_mm': args.position_jitter_mm,
+                      'bounded_action_history': args.bounded_action_history,
+                      'grasp_rehearsal_train_seeds': [e.seed for e in grasp_train],
+                      'grasp_rehearsal_holdout_seeds': [e.seed for e in grasp_holdout],
                       'actor_normalization': 'frozen-source', 'fit': fit}
         checkpoint = args.output / 'placement_warm_start.pt'
         runner.save(str(checkpoint), {'placement_imitation': provenance})

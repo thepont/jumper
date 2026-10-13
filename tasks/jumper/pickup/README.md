@@ -494,6 +494,45 @@ The unchanged default and raw diagnostic values are covered by external
 acceptance probes, observed failing before the feature was added. New-feedback
 save/load and rejection of old-feedback checkpoints passed integration checks.
 
+### Optional pickup rehearsal
+
+The placement trainer accepts `--grasp-demonstrations` for a compatible
+`jumper.pickup.demonstrations/1` dataset. Restricted decoding is size-bounded;
+the contract, finite/bounded labels, unique qualified episodes and original
+whole-episode split are checked before fitting. Pickup training excludes every
+placement holdout seed; pickup validation excludes every placement training
+seed. The saved placement dataset contains the actual pickup train/holdout
+tensors, and the checkpoint records their seeds. Source normalization stays
+frozen. This is imitation rehearsal, not a second deployed policy or a simulator
+success label added to actor inputs.
+
+3900X/native CPU/MuJoCo 3.11.0, 2026-10-13: a separate 150-epoch comparison
+using the existing four placement training episodes, with versus without
+13 compatible pickup rehearsal episodes, retained **11/12 versus 8/12** pickups
+on unseen seeds 4017–4028. Both achieved **0/6 placements** on seeds 3017–3022
+and each had four placement intrusion failures; neither had a pickup intrusion.
+Rehearsal improved pickup retention in this bounded check, not carry/release.
+These runs used original raw feedback, deliberately isolating rehearsal from
+the bounded-feedback experiment. They are not qualified cleanup policies.
+
+Example of the opt-in combined workflow (new output directory required):
+
+```bash
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+  .venv/bin/python -m tasks.jumper.pickup.place_train \
+  --grasp-checkpoint logs/jumper/jumper.pickup/2026-10-13_14-33-58/model_25.pt \
+  --grasp-demonstrations logs/jumper/jumper.pickup/bootstrap-committed-2026-10-13/demonstrations.pt \
+  --bounded-action-history --episodes 32 --holdout-episodes 4 \
+  --output logs/jumper/jumper.pickup/place-near-rehearsal-next
+```
+
+Eighty focused external/framework checks passed after these additions;
+ruff and whitespace checks passed. Existing full-suite baseline failures are
+documented above; this turn did not rerun the full suite. New demonstrations
+still require physical qualification, and phase-aware recovery or collision-free
+path planning has not yet been implemented. No hidden simulator phase is fed
+to the actor and no hardware deployment is authorised by these experiments.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
