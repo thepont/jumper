@@ -65,6 +65,12 @@ class PickupRunner(MjlabOnPolicyRunner):
 
     def transfer_grasp_actor(self, path):
         """Explicit fresh-learner transfer, never a cross-objective resume."""
+        from .env_cfg import DEFAULT_OBJECT_SCALES
+        source_contract = self.contract(training_stage='grasp')
+        source_contract['object_scales'] = list(DEFAULT_OBJECT_SCALES)
+        return self._transfer_actor(path, source_contract, 'grasp-to-near-placement-actor-only/1')
+
+    def _transfer_actor(self, path, source_contract, schema):
         term = self.env.unwrapped.action_manager.get_term('claw')
         if (term.cfg.training_stage != 'place-near' or not self._freeze_actor_normalization or
                 self.current_learning_iteration != 0 or self.alg.optimizer.state or
@@ -75,14 +81,6 @@ class PickupRunner(MjlabOnPolicyRunner):
         if len(contents) > 32 * 1024 * 1024:
             raise RuntimeError('transfer checkpoint exceeds 32 MiB')
         payload = torch.load(io.BytesIO(contents), weights_only=True, map_location='cpu')
-        # Explicit actor-only transfer from the unchanged grasp contract. Unlike
-        # resume, this starts a NEW observation-feedback scope and fresh learner.
-        source_contract = self.contract(training_stage='grasp')
-        # Actor-only transfer from the original qualified grasp distribution
-        # may initialise a narrower size curriculum. Resume remains exact-match;
-        # this does not adopt the source critic, optimizer or episode clock.
-        from .env_cfg import DEFAULT_OBJECT_SCALES
-        source_contract['object_scales'] = list(DEFAULT_OBJECT_SCALES)
         if (not isinstance(payload, dict) or not isinstance(payload.get('infos'), dict) or
                 payload['infos'].get('pickup_contract') != source_contract or
                 payload['infos'].get('pickup_training_policy') != 'frozen-actor-normalization-small-step/1'):
@@ -103,7 +101,7 @@ class PickupRunner(MjlabOnPolicyRunner):
         self.alg._raw_actor.load_state_dict(candidate.state_dict(), strict=True)
         self._imitation_provenance = payload['infos'].get('imitation')
         self._actor_transfer_provenance = {
-            'schema': 'grasp-to-near-placement-actor-only/1',
+            'schema': schema,
             'source_sha256': hashlib.sha256(contents).hexdigest(),
             'source_contract': payload['infos']['pickup_contract'],
             'destination_contract': self.contract(), 'critic_optimizer_clock': 'fresh'}
