@@ -571,6 +571,29 @@ candidate, and its different seeds/layout are not a controlled comparison.
 Adding rehearsal can preserve grasping while still failing to learn release;
 stage-specific recovery and realistic phase estimation remain unfinished.
 
+### Inspecting imitation snapshots without changing the default fit
+
+`place_train --save-fit-every N` optionally saves `fit_epoch_N.pt` checkpoints
+during fitting, including the final epoch when it is not a multiple of N.
+Zero (the default) disables extra snapshots. The best holdout-MSE state is still
+restored and written to `placement_warm_start.pt`; this option does not change
+the loss, input scaling, observations, physics or default checkpoint selection.
+The shared fitting function exposes an optional read-only epoch observer so the
+existing runner remains the single checkpoint writer. Snapshot provenance records
+its epoch, dataset digest and `selection=not-qualified`.
+
+These files are candidates, not automatically improved policies. Compare actual
+placement, intrusion failures and pickup retention on a fixed selection set, then
+check a selected candidate against the reference on separate unseen seeds. Use
+explicit checkpoint paths, one evaluation worker and a bounded timeout; do not
+run every candidate in its own simulator process at once. Preserve failures and
+partial logs separately from complete evaluation reports.
+
+The opt-in callback's failing-first external probe also verifies that an observer
+leaves the default fitted actor unchanged. The 300-epoch snapshot refit reproduced
+the original epoch-22 MSE-selected actor tensor-for-tensor on the fixed dataset.
+This establishes comparable fitting, not better closed-loop performance.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the

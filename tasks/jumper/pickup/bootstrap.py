@@ -157,11 +157,19 @@ class LeftPickupTeacher:
         return bounded_action(action)
 
 
-def fit_actor(runner, train, holdout, *, epochs, batch_size, learning_rate, seed, update_normalization=True):
-    """Behaviour clone only the existing actor MLP; keep the critic/PPO fresh."""
+def fit_actor(runner, train, holdout, *, epochs, batch_size, learning_rate, seed,
+              update_normalization=True, epoch_callback=None):
+    """Behaviour clone only the existing actor MLP; keep the critic/PPO fresh.
+
+    An optional read-only observer receives each completed 1-based epoch before
+    the best validation state is restored. Saving a snapshot does not qualify it
+    for deployment or replace independent closed-loop policy evaluation.
+    """
     bounded_int(epochs, 'epochs', 1, 5000)
     bounded_int(batch_size, 'batch-size', 1, 8192)
     bounded_int(seed, 'seed', 0, 2**31 - 1)
+    if epoch_callback is not None and not callable(epoch_callback):
+        raise ValueError('epoch-callback must be callable or absent')
     if (isinstance(learning_rate, bool) or not isinstance(learning_rate, (int, float)) or
             not np.isfinite(learning_rate) or not 0 < learning_rate <= .1):
         raise ValueError('learning-rate must be finite in (0, .1]')
@@ -208,6 +216,8 @@ def fit_actor(runner, train, holdout, *, epochs, batch_size, learning_rate, seed
             best_mse = mse
             best_state = {name: value.clone() for name, value in actor.state_dict().items()}
             selected_epoch = epoch + 1
+        if epoch_callback is not None:
+            epoch_callback(epoch + 1)
         if epoch % 50 == 0 or epoch == epochs - 1:
             print('IMITATION', json.dumps({'epoch': epoch + 1, 'holdout_mse': mse}), flush=True)
     actor.load_state_dict(best_state, strict=True)

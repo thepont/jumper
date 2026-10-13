@@ -133,11 +133,14 @@ def main():
     parser.add_argument('--bounded-action-history', action='store_true')
     parser.add_argument('--grasp-demonstrations', type=Path,
                         help='optional compatible whole-episode pickup rehearsal dataset')
+    parser.add_argument('--save-fit-every', type=int, default=0,
+                        help='save unqualified imitation snapshots every N epochs; zero disables')
     args = parser.parse_args()
     bounded_int(args.episodes, 'episodes', 2, 128)
     bounded_int(args.holdout_episodes, 'holdout-episodes', 1, args.episodes - 1)
     bounded_int(args.eval_episodes, 'eval-episodes', 1, 128)
     bounded_int(args.epochs, 'epochs', 1, 5000)
+    bounded_int(args.save_fit_every, 'save-fit-every', 0, 5000)
     bounded_int(args.seed, 'seed', 0, 2**31 - 2128)
     from mjrl.backend.resolve import resolve
     from mjrl.backend.select import use_backend
@@ -181,13 +184,22 @@ def main():
             'holdout': [{'seed': e.seed, 'actor': e.observations, 'actions': e.actions} for e in grasp_holdout]}
         dataset = args.output / 'demonstrations.pt'
         torch.save(data, dataset)
+        dataset_sha256 = hashlib.sha256(dataset.read_bytes()).hexdigest()
+        def save_fit_epoch(epoch):
+            if epoch % args.save_fit_every == 0 or epoch == args.epochs:
+                runner.save(str(args.output / f'fit_epoch_{epoch}.pt'), {
+                    'placement_fit_snapshot': {**source_identity,
+                        'schema': 'jumper.pickup.placement-fit-snapshot/1', 'epoch': epoch,
+                        'dataset_sha256': dataset_sha256, 'selection': 'not-qualified',
+                        'actor_normalization': 'frozen-source'}})
         fit = fit_actor(runner, train + grasp_train, holdout + grasp_holdout,
                         epochs=args.epochs, batch_size=512,
-                        learning_rate=.001, seed=args.seed, update_normalization=False)
+                        learning_rate=.001, seed=args.seed, update_normalization=False,
+                        epoch_callback=save_fit_epoch if args.save_fit_every else None)
         if not all(torch.equal(v, runner.alg.actor.obs_normalizer.state_dict()[k]) for k, v in norm_before.items()):
             raise RuntimeError('placement fitting changed the retained input transform')
         provenance = {**source_identity, 'schema': 'jumper.pickup.placement-imitation/1',
-                      'dataset_sha256': hashlib.sha256(dataset.read_bytes()).hexdigest(),
+                      'dataset_sha256': dataset_sha256,
                       'train_seeds': data['train_seeds'], 'holdout_seeds': data['holdout_seeds'],
                       'position_jitter_mm': args.position_jitter_mm,
                       'bounded_action_history': args.bounded_action_history,
