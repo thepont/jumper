@@ -37,14 +37,14 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
         raise ValueError('pickup geometry is calibrated only for the registered jumper asset')
     if claw_side not in ('left', 'right') or object_size not in ('mixed', 'small', 'standard', 'large'):
         raise ValueError('invalid claw side or object size mode')
-    if (training_stage not in ('place', 'grasp') or grasp_start not in ('near', 'reach') or
-            (training_stage == 'place' and grasp_start != 'near')):
+    if (training_stage not in ('place', 'grasp', 'place-near') or grasp_start not in ('near', 'reach') or
+            (training_stage in ('place', 'place-near') and grasp_start != 'near')):
         raise ValueError('invalid pickup stage/start; grasp-start applies only to grasp mode')
-    if training_stage == 'grasp' and claw_side != 'left':
-        raise ValueError('grasp curriculum is verified only for the left claw; right place mode is unchanged')
+    if training_stage in ('grasp', 'place-near') and claw_side != 'left':
+        raise ValueError('near curriculum is verified only for the left claw; right place mode is unchanged')
     if (type(freeze_actor_normalization) is not bool or
-            (freeze_actor_normalization and training_stage != 'grasp')):
-        raise ValueError('freeze-actor-normalization is a boolean opt-in for grasp PPO only')
+            (freeze_actor_normalization and training_stage not in ('grasp', 'place-near'))):
+        raise ValueError('freeze-actor-normalization is a boolean opt-in for grasp/place-near PPO only')
     for value, low, high, name in ((position_jitter_mm, 0, 30, 'position-jitter-mm'),
                                   (detection_dropout, 0, 1, 'detection-dropout')):
         if (isinstance(value, bool) or not isinstance(value, (int, float)) or
@@ -58,8 +58,8 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
     robot = cfg.scene.entities['robot']
     robot.spec_fn = ChassisSpec(robot.spec_fn)
     robot.collisions = tuple(with_chassis_contacts(c) for c in robot.collisions)
-    if training_stage == 'grasp':
-        cfg.episode_length_s = 10.
+    if training_stage in ('grasp', 'place-near'):
+        cfg.episode_length_s = 10. if training_stage == 'grasp' else 30.
         if grasp_start == 'near':
             pose = tuple(float(q) for q in GRASP_ARM) + (BENCH_OPEN,)
             hold = cfg.events['hold_carried_arm'].params
@@ -99,7 +99,7 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
         tray_half=TRAY_INNER_HALF, floor_thickness=BIN_WALL_T, hull=solid.hull,
         object_names=names, object_scales=scales, object_size=solid.size,
         max_chassis_penetration_m=.002, training_stage=training_stage,
-        grasp_start=grasp_start, grip_min_samples=11 if training_stage == 'grasp' else None,
+        grasp_start=grasp_start, grip_min_samples=11 if training_stage in ('grasp', 'place-near') else None,
         freeze_actor_normalization=freeze_actor_normalization)}
     from mjlab.sensor import ContactMatch, ContactSensorCfg
     prefix = 'LF' if claw_side == 'left' else 'RF'
@@ -151,6 +151,11 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
     cfg.terminations['invalid_fixture'] = TerminationTermCfg(func=terms.outcome, params={'kind': 'invalid'})
     cfg.terminations['chassis_intrusion'] = TerminationTermCfg(
         func=terms.outcome, params={'kind': 'chassis_intrusion'})
+    if training_stage == 'place-near':
+        # Same real-pickup/containment/release/settling witness, evaluated AFTER
+        # failures. Legacy placement keeps its original observable semantics.
+        placed = cfg.terminations.pop('placed')
+        cfg.terminations['placed'] = placed
     if training_stage == 'grasp':
         # Same physical pickup witness; a smaller goal and calibrated reset,
         # not a pre-held object. Eleven 50 Hz samples span at least 200 ms.

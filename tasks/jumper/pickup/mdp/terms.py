@@ -55,6 +55,8 @@ def reward(env, *, kind, grasp_offset, reach_std_m, carry_std_m, lift_target_m, 
     if kind == 'release':
         return (evidence.picked & evidence.inside & evidence.released).float()
     if kind == 'placed':
+        if getattr(getattr(term, 'cfg', None), 'training_stage', 'place') == 'place-near':
+            return placement_completed(env).float()
         return evidence.success.float()
     if kind == 'picked':
         return grasp_completed(env).float()
@@ -102,6 +104,10 @@ def grasp_completed(env):
     return evidence.picked & evidence.valid_trajectory & ~evidence.invalid_fixture() & ~failed
 
 
+def placement_completed(env):
+    return grasp_completed(env) & claw(env).evidence.success
+
+
 def outcome(env, *, kind):
     term = claw(env)
     evidence = term.evidence
@@ -110,8 +116,10 @@ def outcome(env, *, kind):
         return evidence.invalid_fixture()
     if kind == 'chassis_intrusion':
         return ~evidence.valid_trajectory
-    if kind == 'picked' and getattr(term.cfg, 'training_stage', 'place') == 'grasp':
+    if kind == 'picked' and getattr(getattr(term, 'cfg', None), 'training_stage', 'place') in ('grasp', 'place-near'):
         return grasp_completed(env)
+    if kind == 'success' and getattr(getattr(term, 'cfg', None), 'training_stage', 'place') == 'place-near':
+        return placement_completed(env)
     return getattr(evidence, kind)
 
 
