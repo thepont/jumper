@@ -749,6 +749,61 @@ epoch-100 actor retained until a new candidate earns selection. Launch and
 collection progress are not evidence of learned size robustness; consult
 `queue.json` and the per-job reports for completed measurements.
 
+#### First queue outcome: budget exhausted, no candidate promotion
+
+The 2026-10-13 Ryzen 9 3900X/native CPU queue stopped after 2,709.13 seconds
+(45 minutes plus the final bounded episode). Four jobs were processed; the
+fifth never started. The scoped coordinator and training children exited.
+`review.json` reconstructs complete and partial reports from the preserved logs.
+All jobs stayed at ±5%; neither widening nor safety-driven narrowing was
+exercised because no complete candidate comparison reached the decision gate.
+
+| Job | Qualified demonstrations: small / standard / large | Fitting | Final status |
+|---|---|---|---|
+| 1 | 9/12, 6/12, 5/12 | 200 epochs; MSE selected epoch 14 | Comparison timed out |
+| 2 | 9/12, 5/12, 2/12 | Not started: insufficient large examples | Collection failed |
+| 3 | 4/12, 2/12, not attempted | Not started: insufficient standard examples | Collection failed |
+| 4 | 6/12, 6/12, 3/12 | 200 epochs; MSE selected epoch 23 | Comparison timed out |
+
+Jobs 1 and 4 saved `fit/placement_warm_start.pt` and all four epoch snapshots.
+Their single-episode placement smoke checks were respectively 1/1 and 0/1;
+original-grasp-scope smoke checks were 1/1 for each. These mixed-layout smoke
+checks are not per-size benchmarks and do not establish a comparative gain.
+Jobs 2 and 3 preserved their logs and transferred actors, but created no fitted
+candidate. The collection gate did not lower qualification to manufacture labels.
+
+The comparison runs **all reference sizes before the candidate**, and the job
+deadline includes collection, fitting and evaluation. This combination starved
+candidate evaluation on this CPU: job 1 recorded 28 reference trials and job 4
+recorded 21, with **zero candidate comparison trials**. Partial reference results
+must not be scored as zero-success candidate trials:
+
+| Job | Size | Reference placement / observed trials | Pickup / observed trials | Intrusion failures |
+|---|---|---:|---:|---:|
+| 1 | Small | 2/12 | 10/12 | 1 |
+| 1 | Standard | 3/12 | 12/12 | 0 |
+| 1 | Large (incomplete) | 1/4 | 4/4 | 0 |
+| 4 | Small | 0/12 | 10/12 | 0 |
+| 4 | Standard (incomplete) | 2/9 | 7/9 | 0 |
+| 4 | Large | Not evaluated | Not evaluated | Not measured |
+
+The deepest recorded reference penetration was 2.014 mm in job 1's small set;
+job 4's incomplete standard set reached 0.635 mm without an intrusion failure.
+Zero reported intrusion failures do not mean zero penetration. Across these
+49 observed reference trials, 26 placement misses ended inside the bin without
+complete release. This is a reference diagnostic, not evidence about either
+newly fitted candidate. Per-demonstration logs do not expose contact depths or
+individual failure causes, so do not infer collision-free teacher collection.
+
+No candidate was promoted or qualified as improved, no policy was deleted,
+and nothing was deployed. The monitoring heartbeat was removed after completion.
+The experiment's size-robustness hypothesis remains **inconclusive**. The next
+bounded evaluation should finish the two existing candidates with interleaved
+matched reference/candidate trials, resumable partial evidence and an evaluation
+budget measured separately from collection/fitting. The collector's inconsistent
+qualification also needs investigation before more queued fits. These are next
+steps, not changes applied to this completed queue; no replacement run was launched.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
