@@ -736,6 +736,19 @@ Rejected or failed jobs never replace the incumbent. All queued comparisons
 are selection evidence: retained candidates still need a separate confirmation
 set before any improvement claim, broader curriculum or hardware promotion.
 
+2026-10-13, Ryzen 9 3900X/native CPU verification: the new size probes were
+observed failing before implementation. The unchanged transfer extraction
+passed 25 checks; the final focused matrix passed 110 checks, followed by the
+two additional timeout/next-job tests in a seven-test orchestration pass.
+Pickup Ruff and whitespace checks passed. The final framework run reported
+1,277 passed, 28 skipped and the same 11 pre-existing failures listed above
+(the local-socket sandbox failures were excluded by granting localhost access).
+The first five-job queue was launched in
+`logs/jumper/jumper.pickup/size-queue-five-runs-2026-10-13/`, with the original
+epoch-100 actor retained until a new candidate earns selection. Launch and
+collection progress are not evidence of learned size robustness; consult
+`queue.json` and the per-job reports for completed measurements.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
