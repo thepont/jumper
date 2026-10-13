@@ -471,6 +471,29 @@ The framework suite recorded 1,277 passed, 28 skipped and the same 11 known
 unrelated failures. Task-specific probes remain outside `tests/` under the
 repository's testing policy. No old code or checkpoints were removed.
 
+### Bounded action-history experiment
+
+`--bounded-action-history` is an opt-in for `place-near` only. It feeds the
+clamped nominal command into proprioceptive history while preserving the raw
+network action for diagnostics, rewards and PPO likelihoods. Servo execution,
+perception gating, dimensions and default observations are unchanged. The
+checkpoint contract adds `action_feedback=bounded-command-history/1`; ordinary
+resume rejects mixing the two observation scopes. Only explicit actor-only
+transfer from the original qualified grasp scope starts this new curriculum.
+This is not a collision-prevention guarantee and does not turn the NN into a
+placement policy.
+
+3900X/native CPU, MuJoCo 3.11.0, 2026-10-13: twelve paired fixed-layout trials
+(seeds 1017–1028, original saved placement actor) produced **0/12 placements**
+in both modes. The first batched comparison gave 6 versus 1 intrusion failures;
+repeating with a fresh global clock for each episode gave **4/12 raw-history
+versus 2/12 bounded-history** failures. Peak raw NN output in the fresh-clock
+comparison fell from 6.12 to 2.97. Episode grouping/capture timing affects the
+numbers: this is bounded diagnostic evidence, not a general safety guarantee.
+The unchanged default and raw diagnostic values are covered by external
+acceptance probes, observed failing before the feature was added. New-feedback
+save/load and rejection of old-feedback checkpoints passed integration checks.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the

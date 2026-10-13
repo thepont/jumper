@@ -9,8 +9,10 @@ def claw(env):
 def proprioception(env):
     term = claw(env)
     data = env.scene['robot'].data
+    history = (term.raw_action.clamp(-1, 1) if
+               getattr(getattr(term, 'cfg', None), 'bounded_action_history', False) else term.raw_action)
     return torch.cat((data.joint_pos[:, term.joints], data.joint_vel[:, term.joints],
-                      term.targets, term.raw_action, data.projected_gravity_b,
+                      term.targets, history, data.projected_gravity_b,
                       data.root_link_ang_vel_b), dim=1)
 
 

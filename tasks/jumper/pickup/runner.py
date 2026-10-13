@@ -59,6 +59,8 @@ class PickupRunner(MjlabOnPolicyRunner):
                             reset_profile='checked-left-pregrasp/1', qualification_samples=11,
                             action_gate='both-detections/1',
                             rewards='discounted-potentials+failure-aware-settled-placement/1')
+            if getattr(term.cfg, 'bounded_action_history', False):
+                contract['action_feedback'] = 'bounded-command-history/1'
         return contract
 
     def transfer_grasp_actor(self, path):
@@ -73,8 +75,11 @@ class PickupRunner(MjlabOnPolicyRunner):
         if len(contents) > 32 * 1024 * 1024:
             raise RuntimeError('transfer checkpoint exceeds 32 MiB')
         payload = torch.load(io.BytesIO(contents), weights_only=True, map_location='cpu')
+        # Explicit actor-only transfer from the unchanged grasp contract. Unlike
+        # resume, this starts a NEW observation-feedback scope and fresh learner.
+        source_contract = self.contract(training_stage='grasp')
         if (not isinstance(payload, dict) or not isinstance(payload.get('infos'), dict) or
-                payload['infos'].get('pickup_contract') != self.contract(training_stage='grasp') or
+                payload['infos'].get('pickup_contract') != source_contract or
                 payload['infos'].get('pickup_training_policy') != 'frozen-actor-normalization-small-step/1'):
             raise RuntimeError('source must be a compatible retained left near-grasp checkpoint')
         state = payload.get('actor_state_dict')

@@ -21,5 +21,7 @@ def cli_args(group):
                        help="grasp only: checked pregrasp reset, or the original stowed-arm reset")
     group.add_argument("--freeze-actor-normalization", action="store_true",
                        help="near curriculum PPO: retain loaded actor scaling and use fixed 3e-5 learning rate")
+    group.add_argument("--bounded-action-history", action="store_true",
+                       help="place-near only: feed bounded commands back to the actor; distinct checkpoint contract")
     return ("claw_side", "position_jitter_mm", "detection_dropout", "object_size",
-            "training_stage", "grasp_start", "freeze_actor_normalization")
+            "training_stage", "grasp_start", "freeze_actor_normalization", "bounded_action_history")

@@ -30,6 +30,7 @@ class ClawActionCfg(ActionTermCfg):
     grasp_start: str = 'near'
     grip_min_samples: int | None = None
     freeze_actor_normalization: bool = False
+    bounded_action_history: bool = False
 
     def build(self, env):
         return ClawActions(self, env)
