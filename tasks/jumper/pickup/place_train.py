@@ -130,6 +130,8 @@ def main():
     parser.add_argument('--epochs', type=int, default=300)
     parser.add_argument('--seed', type=int, default=17)
     parser.add_argument('--position-jitter-mm', type=float, default=0.)
+    parser.add_argument('--size-variation', type=float, default=None,
+                        help='opt-in mixed sizes at 1 +/- this fraction, bounded to [0, .2]')
     parser.add_argument('--bounded-action-history', action='store_true')
     parser.add_argument('--grasp-demonstrations', type=Path,
                         help='optional compatible whole-episode pickup rehearsal dataset')
@@ -142,6 +144,8 @@ def main():
     bounded_int(args.epochs, 'epochs', 1, 5000)
     bounded_int(args.save_fit_every, 'save-fit-every', 0, 5000)
     bounded_int(args.seed, 'seed', 0, 2**31 - 2128)
+    from .env_cfg import size_scales
+    scales = size_scales(args.size_variation)
     from mjrl.backend.resolve import resolve
     from mjrl.backend.select import use_backend
     use_backend(resolve(backend='native', device='cpu', num_envs=1, cpu_threads=1))
@@ -150,7 +154,9 @@ def main():
     from .env_cfg import env_cfg
     from .rl_cfg import agent_cfg
     from .runner import PickupRunner
-    cfg = env_cfg(play=True, training_stage='place-near', object_size='standard',
+    cfg = env_cfg(play=True, training_stage='place-near',
+                  object_size='standard' if args.size_variation is None else 'mixed',
+                  size_variation=args.size_variation,
                   position_jitter_mm=args.position_jitter_mm, freeze_actor_normalization=True,
                   bounded_action_history=args.bounded_action_history)
     cfg.auto_reset = False
@@ -178,6 +184,7 @@ def main():
         data = {'schema': 'jumper.pickup.placement-demonstrations/1', 'contract': runner.contract(),
                 'episodes': [{'seed': e.seed, 'actor': e.observations, 'actions': e.actions} for e in episodes],
                 'reports': reports, 'train_seeds': [e.seed for e in train], 'holdout_seeds': [e.seed for e in holdout]}
+        data['size_variation'] = args.size_variation
         data['grasp_rehearsal'] = {
             'source_contract': runner.contract(training_stage='grasp'),
             'train': [{'seed': e.seed, 'actor': e.observations, 'actions': e.actions} for e in grasp_train],
@@ -202,6 +209,7 @@ def main():
                       'dataset_sha256': dataset_sha256,
                       'train_seeds': data['train_seeds'], 'holdout_seeds': data['holdout_seeds'],
                       'position_jitter_mm': args.position_jitter_mm,
+                      'size_variation': args.size_variation, 'object_scales': list(scales),
                       'bounded_action_history': args.bounded_action_history,
                       'grasp_rehearsal_train_seeds': [e.seed for e in grasp_train],
                       'grasp_rehearsal_holdout_seeds': [e.seed for e in grasp_holdout],

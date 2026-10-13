@@ -78,6 +78,11 @@ class PickupRunner(MjlabOnPolicyRunner):
         # Explicit actor-only transfer from the unchanged grasp contract. Unlike
         # resume, this starts a NEW observation-feedback scope and fresh learner.
         source_contract = self.contract(training_stage='grasp')
+        # Actor-only transfer from the original qualified grasp distribution
+        # may initialise a narrower size curriculum. Resume remains exact-match;
+        # this does not adopt the source critic, optimizer or episode clock.
+        from .env_cfg import DEFAULT_OBJECT_SCALES
+        source_contract['object_scales'] = list(DEFAULT_OBJECT_SCALES)
         if (not isinstance(payload, dict) or not isinstance(payload.get('infos'), dict) or
                 payload['infos'].get('pickup_contract') != source_contract or
                 payload['infos'].get('pickup_training_policy') != 'frozen-actor-normalization-small-step/1'):

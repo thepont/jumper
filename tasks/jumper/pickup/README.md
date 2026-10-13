@@ -655,6 +655,50 @@ by the sandbox. Rerunning the TensorBoard file with local socket access produced
 26 passed and the previously observed TIME_WAIT failure. The full suite is not
 green; its unrelated failures were not changed to make this feature pass.
 
+### Gradual object-size curriculum
+
+`place_train --size-variation .05` opts into uniformly sampled small, reference
+and large objects at scales `.95, 1, 1.05`. Without this option the trainer still
+uses the original standard-only distribution. `env_cfg(size_variation=...)`
+bounds the fraction to `[0, .2]`; geometry, collision hull, reset height and
+mass (constant density, cubic scaling) change together at environment creation.
+This is uniform scaling of one soap shape, not independent aspect ratios or
+different object classes. Each rollout keeps its object's physical size fixed.
+
+Decision specification: success means real pickup followed by complete release,
+whole-hull containment and settling, with the existing failure-first collision
+criteria. The environment is the near-start bench and fixed tray; actuators are
+the same four incremental arm controls and one claw control. The actor receives
+proprioception plus synthetic size/position estimates in metres in the current
+base frame, sampled at 10 Hz with 60 ms delivery latency, 2 mm noise, 5% dropout
+and 250 ms expiry. Invalid detections zero their position/size and carry validity
+and age. The privileged teacher/critic may use contact and true state; the actor
+does not. No camera pipeline or deployable perception adapter is claimed here.
+Pickup has no deployment hook/control binding; this remains simulation training.
+
+The original qualified near-grasp actor can initialise this narrower distribution
+through the existing explicit actor-only transfer. Its critic, optimizer and clock
+are not adopted. Ordinary checkpoint resume remains exact-contract-match,
+including the size scales; widening must not masquerade as an unchanged resume.
+
+The task's `size_curriculum.next_variation` defines the provisional ladder
+`±5% -> ±10% -> ±20%`. A driver may advance only when **each** size's separate
+12 unseen trials has at least eight qualified placements and ten pickups,
+without intrusion/fall/invalid-layout failures or measured chassis penetration.
+Malformed/incomplete reports fail closed. Drivers must reserve new evaluation
+seeds at every gate; previously examined sets are not fresh validation.
+These are initial experiment gates, not calibrated reliability guarantees.
+
+First experiment budget: one CPU collection/fitting worker, at most 36 physical
+teacher attempts, six whole successful episodes held out, 200 fitting epochs and
+snapshots at 50/100/150/200. Compare the retained epoch-100 reference and the
+MSE-selected new actor on 12 unseen trials per size, with fresh clocks, unchanged
+noise/failure criteria and zero XY jitter. Run only this narrow rung unless its
+gate passes; incomplete collection or unsafe outcomes are reported, not relabelled
+as success. The NN learns the verified demonstrations; NN-only evaluation never
+constructs the teacher. No new reward or scripted policy is inserted at replay.
+Use a 15-minute collection/fitting deadline and preserve partial logs on timeout.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the

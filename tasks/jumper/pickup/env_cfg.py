@@ -29,11 +29,24 @@ from .mdp.actions import ClawActionCfg
 from .mdp import terms
 from .collision import CHASSIS_GEOMS, ChassisSpec, with_chassis_contacts
 
+DEFAULT_OBJECT_SCALES = (.8, 1., 1.2)
+
+
+def size_scales(variation):
+    """Uniform geometric scaling; retain the original range when absent."""
+    if variation is None:
+        return DEFAULT_OBJECT_SCALES
+    if (isinstance(variation, bool) or not isinstance(variation, (int, float)) or
+            not math.isfinite(variation) or not 0 <= variation <= .2):
+        raise ValueError('size-variation must be finite in [0, .2] or absent')
+    return (1. - variation, 1., 1. + variation)
+
 
 def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
             position_jitter_mm=10., detection_dropout=.05, object_size='mixed',
             training_stage='place', grasp_start='near', freeze_actor_normalization=False,
-            bounded_action_history=False):
+            bounded_action_history=False, size_variation=None):
+    scales = size_scales(size_variation)
     if asset is not None and Path(asset).resolve() != JUMPER_XML.resolve():
         raise ValueError('pickup geometry is calibrated only for the registered jumper asset')
     if claw_side not in ('left', 'right') or object_size not in ('mixed', 'small', 'standard', 'large'):
@@ -76,7 +89,7 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
             'ranges': stance, 'asset_cfg': SceneEntityCfg('robot', joint_names=stance_joints,
                                                          preserve_order=True)})
     solid = next(s for s in SOLIDS if s.name == 'soap')
-    names, scales = ('soap_small', 'soap', 'soap_large'), (.8, 1., 1.2)
+    names = ('soap_small', 'soap', 'soap_large')
     for name, scale in zip(names, scales, strict=True):
         if name == 'soap':
             continue
