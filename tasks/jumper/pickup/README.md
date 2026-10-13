@@ -594,6 +594,67 @@ leaves the default fitted actor unchanged. The 300-epoch snapshot refit reproduc
 the original epoch-22 MSE-selected actor tensor-for-tensor on the fixed dataset.
 This establishes comparable fitting, not better closed-loop performance.
 
+### Completed snapshot comparison (2026-10-13)
+
+Results are saved under
+`logs/jumper/jumper.pickup/placement-fit-snapshot-sweep-2026-10-13/`, including
+`fit_report.json`, `comparison_report.json`, individual evaluation reports and
+all four snapshots. The reference remains the epoch-22 actor in
+`place-near-bounded-32-2026-10-13/placement_warm_start.pt`; no checkpoint was
+overwritten or promoted to hardware.
+
+The fixed selection seeds were 7017–7028. All evaluations used native CPU,
+one world and one worker, one native/PyTorch thread, deterministic inference,
+fresh episode clocks, zero position jitter, the left claw and standard object.
+Physics ran at 200 Hz, controls at 50 Hz, with a 30-second episode limit.
+The existing delayed/noisy detections (2 mm noise, 5% dropout), bounded action
+history, full-CAD collision checks and physical placement qualification stayed
+unchanged. These are narrow-layout tests, not object-size or position robustness.
+
+| Actor | Qualified placements / 12 | Chassis intrusion failures / 12 |
+|---|---:|---:|
+| Reference, epoch 22 | 6 | 1 |
+| Snapshot, epoch 25 | 0 | 9 |
+| Snapshot, epoch 50 | 0 | 0 |
+| Snapshot, epoch 100 | 4 | 0 |
+| Snapshot, epoch 300 | 1 | 2 |
+
+Epoch 100 was the only placing snapshot without an intrusion failure, so it was
+checked against the retained reference on unseen seeds 9017–9028. It placed
+4/12 versus the reference's 3/12, with zero intrusion failures for both.
+On separate original-grasp-scope seeds 10017–10028, the same saved actors
+picked up 12/12 versus 9/12, again without intrusion failures. This grasp check
+uses the original observations/history, not a cross-objective optimizer resume.
+
+The one-success unseen placement difference is inconclusive: across selection
+and holdout, epoch 100 placed 8/24 versus the reference's 9/24. There was only
+one independent fitting run. Keep epoch 100 as an experimental release-focused
+candidate, not a verified placement improvement or a production replacement.
+Its snapshot metadata remains `selection=not-qualified`.
+
+In every unseen epoch-100 placement trial the object was picked up and fully
+inside the bin at episode end. All eight misses had `inside=True` but
+`released=False`. The measured bottleneck in this set is completing release
+and withdrawal; these terminal observations do not establish why the actor
+chooses its finger commands. No release/reward/controller change was made as
+part of this comparison.
+
+An NN-only replay of successful holdout seed 9020 completed qualified placement
+in 13.02 simulated seconds with zero measured chassis penetration. It used
+the existing replay recorder and evaluator without a teacher, IK controls or
+injected object states. This selected success illustrates behavior; it is not
+an additional independent trial or a reliability estimate.
+
+Verification: 85 focused framework and external pickup acceptance tests passed,
+including snapshot cadence, forced final-epoch saving, disabled/default behavior
+and invalid-option rejection. Pickup Ruff and `git diff --check` passed.
+The full framework suite finished with 1,274 passed, 28 skipped and 14 failures:
+ten matched earlier deployment provenance, five-foot objects, script vocabulary,
+missing-JAX MJX, posture and seam failures; four local-socket tests were blocked
+by the sandbox. Rerunning the TensorBoard file with local socket access produced
+26 passed and the previously observed TIME_WAIT failure. The full suite is not
+green; its unrelated failures were not changed to make this feature pass.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
