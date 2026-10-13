@@ -1105,6 +1105,64 @@ Focused recovery controls and whitespace checks passed; no production code or
 physics changed and the full framework was not rerun. Results are published in
 `small-grasp-recovery-evidence.zip`; the completed-run heartbeat is removed.
 
+### Pinch/lift video and contact diagnosis (2026-10-14)
+
+The user authorised side-by-side replay and phase/contact traces, not another
+fit. Recordings use the repository's canonical `ReplayVideo` through the existing
+NN-only evaluator. The actors, CAD, physics, sensor noise, failure criteria and
+action decoding are unchanged. The previously observed first lift-discordant
+small-object case (seed 610018) and a successful control (610017) were selected
+for illustration, **not independent confirmation or checkpoint selection**.
+The wider-camera failure comparison is in
+`logs/jumper/jumper.pickup/pinch-lift-video-2026-10-14-wide/`; the four-episode
+recording/trace set, including the control, is in `pinch-lift-video-2026-10-14-r3/`.
+
+In the wider failure comparison, run 1 qualified a pickup at 6.28 s, reached
+37.627 mm object-floor clearance and placed at 15.84 s. The failed narrower
+actor moved its arm by up to 1.049 rad and maintained dual-pad contact for up to
+4.32 s, but reached only 1.901 mm clearance. Non-claw object contact existed in
+1,498/1,500 control frames; there was no qualifying unsupported lift, and it
+timed out at 30 s. No chassis intrusion occurred in these illustrative replays;
+this does not establish hardware safety or generalise beyond the selected cases.
+
+The failure trace exposes a concrete transition: at 6.20 s the requested jaw
+target was -.370 rad, actual angle -.429 rad and simulated actuator torque
+.594 Nm. By 6.30 s, the requested target was -.456 rad, actual angle -.443 rad,
+torque approximately zero and dual-pad contact lost. The object remained
+supported. A lower jaw-angle target is opening-directed here: the open angle is
+`.10 - pi/2`, closed angle .10. The learned claw channel specifies an **absolute
+target angle**, not closing velocity; even a positive raw claw output can reduce
+closure. Later it closes without recapturing the object. Peak absolute actuator
+torque was 1.155 Nm versus run 1's .908 Nm, so peak torque alone is not the
+failure explanation. These are simulated joint torques, not measured gripping
+forces or permissible hardware loads.
+
+This supports investigating premature grip relaxation and the concurrent arm
+lift path. It does not isolate their causal contributions: no intervention held
+the claw closed or changed the arm trajectory. Such a counterfactual would be an
+explicitly assisted diagnostic, not NN-only performance. The successful control
+placed with both actors, so the new actor is not universally unable to lift.
+
+Initial observation/qpos/qvel fingerprints match the earlier diagnostics and
+each other, and success/failure classes reproduce. Subsequent trajectories are
+**not bit-exact**: run 1's failure-case completion shifted +.02 s; the control
+completions shifted -.40 s and -.64 s. Those differences are recorded, with no
+claim that recorder instrumentation is numerically invisible. The rendering and
+trace observation code changed, not production physics or learned commands.
+The side-by-side video explicitly labels held final frames after an episode ends.
+
+An initial recorder attempt failed because native MuJoCo does not expose the
+high-level `qfrc_actuator` field; all its artifacts were preserved. The external
+probe now reads existing native actuator forces and projects direct hinge
+actuators through their actual model gear, rather than changing the backend.
+A second recording stopped on a stricter exact-duration comparison; it too is
+preserved. Three failing-first external trace/mapping controls passed after
+implementation; 44 focused trace/framework checks passed, alongside Ruff and
+whitespace checks. The full framework was not rerun. No new production code,
+training, hardware deployment or policy promotion was performed. CSV traces,
+contact plot, both matched videos, source identities and failed attempts are
+preserved for the next diagnosis.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
