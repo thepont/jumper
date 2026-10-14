@@ -8,6 +8,50 @@ import numpy as np
 from mjrl.manipulation import PointIK, TargetEstimate
 
 
+class JointShortcutTests(unittest.TestCase):
+    def test_clear_path_removes_unnecessary_stops_without_mutating_input(self):
+        from mjrl.manipulation import shortcut_joint_path
+        path = np.array([[0., 0.], [.2, .3], [.7, .4], [1., 1.]])
+        before = path.copy()
+        result = shortcut_joint_path(path, lambda q: True, resolution_rad=.05)
+        self.assertTrue(result.found)
+        self.assertEqual(len(result.waypoints), 2)
+        np.testing.assert_array_equal(path, before)
+        np.testing.assert_array_equal(result.waypoints[-1], path[-1])
+
+    def test_shortcut_cannot_cut_through_an_obstacle(self):
+        from mjrl.manipulation import shortcut_joint_path
+        path = [[0., 0.], [0., 1.], [1., 1.], [1., 0.]]
+        def valid(q):
+            return not (.3 < q[0] < .7 and q[1] < .8)
+        self.assertFalse(valid(np.array([.5, 0.])))
+        result = shortcut_joint_path(path, valid, resolution_rad=.02)
+        self.assertTrue(result.found)
+        self.assertGreater(len(result.waypoints), 2)
+        for a, b in zip(result.waypoints, result.waypoints[1:]):
+            self.assertTrue(all(valid(q) for q in np.linspace(a, b, 101)))
+
+    def test_query_budget_exhaustion_never_returns_a_partial_success(self):
+        from mjrl.manipulation import shortcut_joint_path
+        result = shortcut_joint_path([[0.], [1.]], lambda q: True,
+                                     max_checks=2, resolution_rad=.01)
+        self.assertFalse(result.found)
+        self.assertEqual(result.waypoints, ())
+        self.assertLessEqual(result.checks, 2)
+
+    def test_invalid_path_or_callback_results_are_rejected(self):
+        from mjrl.manipulation import shortcut_joint_path
+        for path in ([], [[0.]], [[0.], [float('nan')]], [[0., 1.], [1.]]):
+            with self.assertRaises(ValueError):
+                shortcut_joint_path(path, lambda q: True)
+        with self.assertRaises(ValueError):
+            shortcut_joint_path([[0.], [1.]], lambda q: None)
+        for resolution in (True, 0., float('nan'), float('inf')):
+            with self.assertRaises(ValueError):
+                shortcut_joint_path([[0.], [1.]], lambda q: True,
+                                    resolution_rad=resolution)
+
+
 class ManipulationTests(unittest.TestCase):
     def setUp(self):
         self.model = mujoco.MjModel.from_xml_string('''

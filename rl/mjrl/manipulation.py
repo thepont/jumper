@@ -69,6 +69,59 @@ class JointPathResult:
     reason: str
 
 
+def shortcut_joint_path(waypoints, is_valid, *, max_checks=10000,
+                        resolution_rad=.025) -> JointPathResult:
+    """Remove intermediate stops only across checked collision-free segments.
+
+    Uses the caller's existing collision Strategy. Greedy farthest-visible
+    shortcuts preserve endpoints, sample each edge at the specified resolution,
+    and fail closed on exhausted budgets. This is discrete geometric evidence,
+    not a claim about actuator tracking or continuous collision clearance.
+    """
+    path = np.asarray(waypoints, dtype=float)
+    if (path.ndim != 2 or not 2 <= len(path) <= 10000 or
+            not 1 <= path.shape[1] <= 32 or not np.isfinite(path).all()):
+        raise ValueError("path requires 2..10000 finite vectors of 1..32 joints")
+    path = path.copy()
+    if (isinstance(max_checks, bool) or not isinstance(max_checks, (int, np.integer)) or
+            not 2 <= max_checks <= 1000000 or isinstance(resolution_rad, (bool, np.bool_)) or
+            not isinstance(resolution_rad, (int, float, np.integer, np.floating)) or
+            not math.isfinite(resolution_rad) or
+            not 0 < resolution_rad <= math.pi or not callable(is_valid)):
+        raise ValueError("shortcut needs a bounded query budget, resolution and collision strategy")
+    checks = 0
+
+    def query(q):
+        nonlocal checks
+        checks += 1
+        verdict = is_valid(q.copy())
+        if not isinstance(verdict, (bool, np.bool_)):
+            raise ValueError("collision strategy must return explicit boolean evidence")
+        return bool(verdict)
+
+    if not query(path[0]):
+        return JointPathResult(False, (), checks, "invalid start")
+    chosen, current = [path[0].copy()], 0
+    while current < len(path) - 1:
+        selected = None
+        for candidate in range(len(path) - 1, current, -1):
+            extent = float(np.max(np.abs(path[candidate] - path[current])))
+            if not math.isfinite(extent) or extent / resolution_rad > max_checks - checks:
+                return JointPathResult(False, (), checks, "shortcut query budget exhausted")
+            count = max(1, math.ceil(extent / resolution_rad))
+            if checks + count > max_checks:
+                return JointPathResult(False, (), checks, "shortcut query budget exhausted")
+            if all(query(path[current] + (path[candidate] - path[current]) * (i / count))
+                   for i in range(1, count + 1)):
+                selected = candidate
+                break
+        if selected is None:
+            return JointPathResult(False, (), checks, "no valid continuation")
+        chosen.append(path[selected].copy())
+        current = selected
+    return JointPathResult(True, tuple(chosen), checks, "checked shortcut corridor")
+
+
 def plan_joint_path(start, goal, lower, upper, is_valid, *, seed=0,
                     max_samples=800, max_checks=10000, step_rad=.18,
                     resolution_rad=.025) -> JointPathResult:
