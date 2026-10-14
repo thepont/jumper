@@ -110,6 +110,31 @@ with all five recorded supports, 6.77 mm final foot drift and no qualified picku
 Its inherited intermediate reason text still says 20 mm; the frozen plan and
 source specify 30 mm. The trace, not that stale string, identifies this trial.
 
+#### Longer approach comparison — 2026-10-14
+
+At the user's request, one same-seed diagnostic extended only the prototype's
+approach deadline to at least 15 seconds (40-second episode cap, 240-second
+wall limit, one native CPU world/thread). Collision, support, action and
+centrality criteria were unchanged. Source copies and hashes were saved before
+execution in `central-facet-long-approach-2026-10-14`; the added read-only trace
+records actual position/axis errors and joint-target tracking.
+
+The old run stopped at step 682 (13.64 seconds), with this matched replay showing
+4.158 mm position error against the 4 mm arrival gate. The longer run began
+closure at step 710 (14.20 seconds), just 0.56 seconds later. All 682 shared
+base-pose records match exactly; this checks that recorded channel, not every
+unrecorded state. The earlier arrival deadline was insufficient for this case.
+
+The run ended at step 738 (14.76 seconds) with three dual-pad contact frames,
+zero central frames and zero qualified pickups. The final contact fraction was
+0.5026 against the unchanged 0.35 limit. Its generic stop label is `no checked
+lift corridor`, but the detailed rejection is specifically fewer than three
+central-contact samples, not a failed geometric lift search. All five recorded
+supports remained; final recorded foot drift was 7.08 mm. Extra time enabled
+arrival and pinch, but did not demonstrate a central grip or NN improvement.
+No replacement attempt or training was launched. This is one diagnostic case,
+not a robustness comparison or an independently confirmed learned improvement.
+
 These support/central prototypes are not promoted into the actor's five-action
 interface: they command support joints that the existing pickup actor cannot.
 Some early combined prototype plan text incorrectly said support-only commands;
