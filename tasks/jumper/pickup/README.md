@@ -1163,6 +1163,75 @@ training, hardware deployment or policy promotion was performed. CSV traces,
 contact plot, both matched videos, source identities and failed attempts are
 preserved for the next diagnosis.
 
+### Closed-claw counterfactual: closure alone does not rescue lift
+
+The user authorised following the causal diagnostic. One bounded experiment at
+`logs/jumper/jumper.pickup/claw-counterfactual-2026-10-14/` completed six episodes:
+two previously observed small-object cases, each under NN baseline, unchanged
+command-tape replay (sham), and assisted closed-claw replay. Native CPU physics,
+actors, observations, sensor noise, servo limits and success/failure criteria
+were unchanged. No fitting or production changes were made.
+
+For each case, record the newer actor's complete raw command tape first. Replay
+the four raw arm channels exactly; the assisted condition changes only the claw
+channel to +1 after first dual-pad contact, then keeps that command latched. This
+uses a **privileged simulator contact oracle**, not a deployable sensor frontend
+or learned policy. Once the tape ends, zero arm commands hold the current servo
+targets; no arm velocity is extrapolated. The primary outcome is qualified
+unsupported pickup within the original tape horizon (30 s for failure case
+610018, 13.74 s for successful control 610017). The full episode remains bounded
+by the existing 30-second limit and physical failure terminations.
+
+The independent trace audit checked every raw arm component against the saved
+tape, the zero-command tail, each claw override, identical initial fingerprints
+and unchanged checkpoint hashes. Both sham replays reproduced their NN baseline
+outcome classes. Equal commands do not imply identical physical arm poses:
+object contact and the unchanged perception gate can mediate their response.
+This is a command-level ablation, not a prescribed-pose simulation.
+
+| Case / condition | Qualified pickup within tape | Maximum clearance | Placement |
+|---|---|---:|---|
+| 610018 NN baseline | No | 1.902 mm | No |
+| 610018 tape sham | No | 1.902 mm | No |
+| 610018 assisted closed claw | No | 7.718 mm | No |
+| 610017 NN baseline | Yes | 28.316 mm | Yes |
+| 610017 tape sham | Yes | 28.316 mm | Yes |
+| 610017 assisted closed claw | Yes | 28.316 mm | No |
+
+In failure case 610018, the intervention began at 1.96 s. Maximum sustained
+dual-pad contact was 4.34 s versus 4.32 s unassisted, with no qualifying
+unsupported lift. Commanding the claw closed helped clearance briefly, but did
+not reach the unchanged 15 mm/unsupported/sustained-grip requirement. This
+contradicts the narrow hypothesis that preventing grip relaxation alone suffices
+to rescue this arm command sequence; it does not prove grip relaxation never
+contributes. All six episodes avoided recorded intrusion/fall/invalid/too-low
+failures, which is not hardware safety evidence.
+
+The successful control still qualified a lift under assistance at 6.70 s.
+Placement did not complete because the assisted claw deliberately never released;
+that is an intervention consequence, not learned-policy improvement or a new
+placement defect. Holding the claw closed indefinitely is not a cleanup solution.
+
+Read-only comparison with run 1's earlier working trace shows a divergence
+before the jaw relaxation. At 6.20 s, run 1 was already unsupported with
+17.711 mm clearance, LF_J1 at -2.220 rad and LF_J3 at -.947 rad. The newer
+arm was still supported at approximately -.649 mm clearance, LF_J1 at
+-1.736 rad and LF_J3 at -.572 rad, including under closed-claw assistance.
+Those differences identify coordinated lift motion/contact geometry as the next
+investigation target; they do not isolate a single faulty joint or justify
+changing a joint limit, friction, effort cap, success threshold or observation.
+The working trace is context from an earlier replay, not another controlled
+condition of this experiment.
+
+Decision: preserve all tapes, CSVs, videos and actors; no promotion or hardware
+deployment. A next authorised arm-path ablation can distinguish learned arm
+motion from grasp/contact geometry while keeping the jaw rule fixed. These two
+selected cases provide local diagnostic evidence, not population statistics,
+independent confirmation, or proof of a training improvement. The two new
+intervention controls were observed failing first, then passed; 46 focused
+intervention/trace/framework checks, the command-tape audit, Ruff and whitespace
+checks passed. The full framework was not rerun.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
