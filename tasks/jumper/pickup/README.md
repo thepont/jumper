@@ -150,6 +150,73 @@ Release checks: 80 focused framework/external controls passed (35 warnings,
 the historical baseline above remains separately labelled. Task controls stay
 outside `tests/` and are preserved with the evidence archive.
 
+### Overnight central-reward PPO pilot — 2026-10-15
+
+The user authorised substantial overnight reward-based training. A perfect
+scripted teacher is not a prerequisite for from-scratch PPO; it remains necessary
+to qualify demonstrations before imitation. This pilot does not use the support
+preparation prototype or change the five-action actor interface.
+
+The opt-in native CPU module `central_reward.py` scores active, nonpositive-gap,
+positively loaded insert/object contacts in the selected object's frame and scale.
+Each point receives `exp(-0.5 * (max(abs(x)/hx, abs(z)/hz) / 0.35)^2)` **before**
+normal-load averaging; the weaker pad determines the score. Opposite edge points
+cannot cancel into a fabricated central bonus. Missing loaded pads score zero.
+These are simulator post-forward constraint loads, not hardware pressure readings
+or proof of sufficient grip force. Positive load, inactive contact, positive gap,
+edge cancellation and scaling controls include real native sphere/box fixtures.
+
+The six serial fresh learners use two training seeds (930001/930002) and central
+profile weights 0/1/4. Each profile changes both the auxiliary discount-correct
+potential and a canonical-pickup-gated bonus of weight `250 * profile_weight`;
+it is a comparison of reward recipes, not an isolated shaping-component effect.
+Existing reach/grip/lift shaping, actor inputs, perception noise, physics and
+canonical physical pickup criteria remain unchanged. Episodes are 30 seconds
+rather than the default 10-second grasp episode. Eight native worlds use two
+native threads and one PyTorch thread; no other machine or hardware is involved.
+
+All profiles add the same experiment-only 1 mm mask-independent self-clearance
+rejection, latched into existing failure eligibility before pickup completion.
+This checks nonadjacent front-arm/robot pairs at control boundaries; it is not
+continuous swept clearance or hardware safety. Adjacent interfaces remain outside
+that guard. The ordinary task, old policies and old checkpoint contracts remain
+unchanged; experimental checkpoints have a distinct contract and are not deployed.
+
+Queue limits: six hours overall, at most 2,000 PPO updates and 45 minutes per
+learner, then at most ten minutes for 12 matched selection episodes (eight
+standard, two small and two large at +/-2.5% scale and 2 mm position jitter).
+Source hashes are checked between training chunks and before evaluation; a source
+change, nonfinite state, failed process, incomplete report or paired-start mismatch
+stops the queue without replacement. Every checkpoint and failed result is kept.
+Complete paired selection compares central pickups and pickup retention by size,
+with no aggregate safety regression. Retention is experimental, not promotion.
+If any candidate meets the fixed selection gate, one is compared with its same-seed
+zero-bonus baseline on 12 new reserved seeds, within the remaining overall budget.
+Sparse pilot results must not be described as proven algorithm improvement.
+
+Evaluation reports legacy physical pickup separately. The auxiliary score >=0.9
+is **not** equivalent to the old reported-centroid fraction <=0.35. The central
+pickup label requires both signals for the first 11-frame physical witness;
+neither signal alone certifies a lift. A high score alone does not establish
+benign penetration or hardware safety. Grasp-only episodes do not test placement.
+
+Protocol/driver/checkpoints/reports live under
+`logs/jumper/jumper.pickup/overnight-central-2026-10-14/`; that frozen directory
+name retains the planning date. The bounded coordinator is
+`/tmp/jumper_overnight_central.py`, copied into the evidence bundle before launch.
+No automatic deletion, widening, reward mutation, policy promotion or hardware
+deployment is authorised. Rejected candidates are preserved, not removed.
+
+Preflight on the local Ryzen 3900X/native CPU: 14 external reward/guard controls
+and adjacent framework checks totalled 73 passes (1.56 seconds); Ruff and
+whitespace checks passed. Three native PPO updates completed in approximately
+five seconds, saving finite checkpoints. Cold reload completed all 12 episodes
+with zero pickups and explicit-clearance stops; this verifies the executable
+path, not learned grasping. A stationary open-claw positive control ran 300
+steps/six seconds without rejection. Earlier device-type and logger integration
+failures are preserved in their separate preflight directories/logs. No new
+full-suite result is claimed.
+
 From the root repository's editable environment:
 
 ```bash
