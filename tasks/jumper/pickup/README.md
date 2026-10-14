@@ -1723,6 +1723,50 @@ existing servo commands, then revalidate approach and coordinated closure.
 This result identifies an early path obstruction, not a need for more NN epochs
 or permission to remove collision geometry.
 
+## Clear preparation and measured-path continuation (2026-10-14)
+
+On the local native CPU simulator, the preserved stowed-arm preshape reproduced
+the premature moving-insert contact (0.481 mm penetration). Moving the open arm
+to the preserved preparation pose before preshaping passed 509 sampled native
+collision checks without writing live state. This is a path-screen result, not
+a physical grip. The subsequent frozen-object seating edge still failed at
+2.344 mm palm/soap penetration; it was not executed.
+
+The shared `shortcut_joint_path` helper removes unnecessary stops only through
+sampled, checked corridors and fails closed on exhausted budgets. Its isolated
+implementation and regression tests are commit `d525df5`. The preparation route
+was reduced from 15 arm waypoints to three, followed by a separate preshape
+waypoint. External teacher controls additionally pin synchronized joint steps,
+floating-point rate-limit boundaries, and measured-pose corridor continuation;
+final alignment and collision predicates were not relaxed.
+
+Physical replays under `clear-preshape-fix-2026-10-14/` preserve every failure:
+
+| Replay | Measured result |
+| --- | --- |
+| Initial | Incomplete after a floating-point rate-boundary exception; video retained. |
+| R2 | 1,500 steps / 30 s, timeout at an intermediate tracking stop. |
+| R3 | 1,537 steps / 30.74 s, approach timeout at the tracking-lag pause. |
+| R4 | 1,537 steps / 30.74 s, approach timeout with approximately 0.064 rad steady joint error. |
+| R5 | 696 steps / 13.92 s, stopped when RF support contact disappeared, leaving LR/RM/RR. |
+
+R5 passed every recorded actual preparation collision check and advanced past
+the intermediate stop through a checked measured-pose corridor. Maximum measured
+support-foot drift was 7.217 mm (8 mm limit). Nevertheless preparation failed:
+the unchanged four-support-contact requirement stopped the episode. This does
+not establish whether the lost contact is caused by support tracking, dynamic
+load transfer, or the contact detector. No central grip or placement succeeded.
+The next prerequisite is diagnosing this support loss before another grasp
+attempt, not training on these failed paths or weakening the support guard.
+
+Validation: 56 focused framework checks passed (35 warnings, 6.83 s), nine
+external prototype controls passed (38 warnings, 10.55 s), and Ruff passed.
+Red regressions and all intermediate sources/logs are preserved beside the run.
+The full-framework baseline was not rerun. No NN training, policy promotion,
+physics/reward/sensor changes, favourable live-state resets or hardware actions
+were performed. Privileged support commands are not five-action actor labels;
+old code, demonstrations and policies remain preserved.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
