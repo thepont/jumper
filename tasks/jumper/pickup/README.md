@@ -1557,6 +1557,172 @@ All old code, policies, artifacts and unrelated dirty changes remain preserved.
 The scoped evidence archive contains all three finite searches, pilot video
 and trace, source identities, probes, logs, review and plot, not books or secrets.
 
+### TDD finite-region fix and unresolved physical grip (2026-10-14)
+
+Decision: the software closest-point defect is corrected, but **central physical
+grasping remains unresolved**. Commit `4bb7882` adds the generic
+`mjrl.contact_regions` functional core and its BDD-style framework tests. A
+centred 52 x 40 mm planar pad region, .5 mm from a 60 x 94 mm object face, has
+geometric central fraction zero; the old nearest-corner proxy rejects it with
+fraction .867. An external reduction actually failed against the preserved old
+rule. The corrected function clips the finite region to the selected object
+face and gap band, then reports projected area and geometric centroid. It never
+reports that centroid as an observed physical contact or a successful grip.
+Immutable `FaceWindow`/`ContactRegion` contracts keep units and ownership explicit.
+
+The prototype uses a geometry **Strategy** behind a MuJoCo **Adapter**: candidate
+measurement can change without changing servo execution or canonical evidence.
+The geometric core has no simulator dependency; the adapter supplies collision
+mesh vertices through geom frames in object coordinates. The planned-aperture
+adapter encodes the existing absolute finger action, not a new actuator contract.
+The cost is an extra candidate-measurement boundary that needs its own frame and
+positive-control tests. No production controller refactoring was mixed with this
+feature, and global `Claw`, rewards, physics and sensor contracts were unchanged.
+
+On the local Ryzen 9 3900X/native CPU MuJoCo 3.11.0 setup (one world and one
+native/PyTorch thread), `contact-regions-screen-2026-10-14` completed 72 queries;
+six passed IK/alignment, zero survived the finite-region closure screen. The
+first `contact-regions-shape-fit-2026-10-14` attempt saved 90 of 108 queries,
+then its adapter failed extracting a polygon from a merged reference plane.
+That report is incomplete and preserved; it is not evidence of physical failure.
+An exact-plane extraction regression passed in the `-r2` adapter. Its 108-query
+rigid fit and a separate 972-query expanded fit completed with zero survivors.
+Selecting a single facet still discards adjacent usable surface area, so the
+next Strategy area-integrated all facing convex-hull triangles independently.
+Its roof-shaped regression confirms the complete projected area and stable
+centre; `contact-regions-surface-fit-2026-10-14` completed 108 virtual fits,
+again with zero survivors. These virtual placements ignore support/floor/reach
+and freeze the object; they are neither hardware proof nor a global
+impossibility claim. No physics steps occurred in these geometry studies.
+
+The bounded `contact-regions-pilot-2026-10-14` trial used the integrated-surface
+Strategy at the measured robot pose, and contact-aware reference target offsets
+of +/- .6 object X/Z half-extents. Reference-point offsets need not themselves
+be central; the actual-contact .35 requirement was not changed. A screened
+aperture and .45 rad/s teacher request ramp replaced blind full-close in the
+prototype, through the unchanged squeeze limiter. However, that branch was
+**unvisited**: all 16 IK-passing candidates out of 36 failed the closure screen.
+The pilot stopped after 536 control frames / 10.72 simulated seconds, before
+approach or closure, with maximum support-foot drift 6.688 mm under the 8 mm
+guard and no existing failure termination. No sampled admissible central closure
+was present even after the first blocking sample. First blockers included fixed
+palm/finger pieces against SOAP and palm-pad/palm pieces against the floor.
+This validates rejection, not gripping. There were zero qualified pickups,
+zero training examples, no NN training and no policy promotion.
+
+Twelve generic BDD tests pass, including clipping, tilted planes, opposing faces,
+axis permutation, immutable ownership and invalid input. The full framework at
+the initial ten-test snapshot had 1,287 passes, 28 skips and the same 11 known
+unrelated failures; the two later ownership/axis tests also passed. The final
+focused run including the four CAD controls had 66 passes; adapter-plane, integrated-surface and aperture
+controls were observed red before their implementations. Frozen-source/count /
+physical rejection audits, Ruff and whitespace checks passed. All older code,
+checkpoints and failed attempts remain preserved, and unrelated dirty changes
+retain their original hash. The evidence archive includes the incomplete study,
+all successful reports, probes, logs, sources, video and the regression plot.
+
+The bounded `saved-pose-cad-2026-10-14-r2` diagnostic then inspected five saved
+scratch poses / nine contacts, without physics steps or live-state/asset changes.
+The first diagnostic version reprocessed visual vertices after world rotation,
+making topology pose-dependent; preserve that result but exclude its classification.
+R2 processes each visual mesh once in its geom-local frame, inverse-transforms
+the query point, and uses existing trimesh triangle queries with a vectorised
+bounds-index Adapter (the optional `rtree` package is unavailable). Three ray
+parities must agree; non-watertight/inconsistent meshes retain ambiguity. Hooked
+versus solid-jaw controls, an open-mesh control and a transformed-frame control
+passed. This is ray parity, not a winding-number calculation or a universal
+mesh-validity certificate.
+
+Four moving-insert collision witnesses were .97--1.20 mm **outside** their
+watertight visual surface while native insert penetration grew from 1.28 to
+6.04 mm. This establishes a local collision/visual discrepancy, but these
+different distances cannot be subtracted to infer clearance. Finger-piece
+visual distances of 3.71 and .76 mm remain ambiguous because those source meshes
+are not watertight. At the preserved r6 blocking query, a fingertip witness was
+inside its watertight visual surface (native penetration 3.34 mm), and the
+insert witness lay on its visual surface despite 10.31 mm native penetration.
+Local witness checks therefore do not justify attributing every obstruction to
+a false hull or establish whole-object clearance. No collision geometry changed.
+
+A read-only root-cause committee reconciled the remaining evidence. Both
+reviewers confirm the saved-pose diagnostic is complete and recommend testing
+one coordinated seating hypothesis, rather than repeating grids or regenerating
+meshes. At one sampled transition the fixed insert remains .66 mm away while the
+moving geometric region becomes central only after more than 4 mm penetration.
+A frozen object cannot model contact-driven seating, but that limitation is not
+permission to bypass collision guards or blindly close. Any next trajectory
+must be validated as actually executed, retain physical first-witness acceptance,
+stop on missing evidence/timeout/guard failure, and stay separate from training.
+The shared region helper explicitly models a box-face candidate window; its use
+for bevelled SOAP remains an approximation, not exact hull contact geometry.
+No safety/centrality weakening, source-geometry modification, actor contract
+expansion or hardware deployment is authorised by these results.
+
+### One coordinated-seating path: rejected before physical replay (2026-10-14)
+
+Decision: preserve this failed path; do not replay it physically, train on it,
+weaken contact guards or start another parameter grid. The reviewers withdrew
+claims that the moving region was absent at every aperture, that exact pad
+parallelism was required, and that the finite studies established a global
+mouth-geometry obstruction. Query 0 contains moving geometric centralities
+.804, .335 and .074 at apertures -.6363, -.5381 and -.4890 rad. These are
+candidate regions, not qualified physical contacts. The fixed insert remains
+.661 mm away as the moving insert penetrates more deeply. The corrected
+closest-point defect was insufficient to produce a grip; it is not proved to
+have never contributed to earlier failures.
+
+The user authorised one bounded coordinated-seating investigation. The external
+`/tmp/jumper_seating_path.py` prototype freezes query 0 and the measured
+`failed_planning_qpos` from the previous pilot. Its single path preshapes at the
+saved stowed arm to -.8 rad, approaches the original query at that aperture,
+then combines closure to sample 34 (-.6363 rad) with a single midpoint-derived
+arm correction. The object-frame correction is (+14.989, -1.000, -5.397) mm;
+it translates the reference point using the candidate region midpoint, not a
+claimed contact oracle. No pose grid or additional candidate selection was used.
+The only seating IK solve returned 1.568 mm / 4.388 degrees, within the existing
+4 mm / 10 degree screen. That solve is not a collision-free path or grasp proof.
+
+`coordinated-seating-2026-10-14/plan.json` records the protocol and source hashes.
+Five-joint waypoints use <=.009 rad sampling, corresponding to the unchanged
+.45 rad/s request limit and .02 s control period. The MuJoCo Adapter checks
+every intended sample, keeps every predicate result and concurrent contact
+failure, and does not veto a path using unused fully-open-at-target states.
+Object-contact permissions remain unchanged: preshape permits no penetration,
+approach permits inserts only up to 1 mm, close/lift permit the claw subtree
+up to 2 mm. Pad penetration, LF floor and robot/chassis guards remain active.
+Finite-region geometry remains a candidate Strategy, not physical evidence.
+No new pattern framework or production controller refactoring was added.
+
+On the same local Ryzen 9 3900X/native CPU MuJoCo 3.11.0 setup, the bounded
+scratch validation completed after **55 samples**. Sample index 54 rejected
+the **preshape** phase at jaw -.987775 rad: the moving grip insert intersects
+SOAP by **.480801 mm**. Joint limits, LF floor, other-robot, object-chassis and
+2 mm pad-depth predicates passed at that sample, but the no-object-contact
+preshape predicate failed. The saved stowed pose is therefore not a clear
+preshape location for this path. Approach and coordinated seating were unvisited;
+this is not evidence that all coordinated-seating motions are impossible.
+The report is complete, timed out false, physical replay admitted false,
+physics steps zero and live state writes false. Only private scratch `MjData`
+was changed after the ordinary reset; the live environment state was asserted
+unchanged. All source hashes and the unrelated tracked-diff hash were preserved.
+
+Eleven external behavioural controls were observed red before implementation
+(the missing prototype), then green: unused-path obstruction isolation, all
+concurrent blockers retained, missing evidence/deadline rejection, geometry
+without actual dual contact cannot qualify lift, 11-frame/15 mm boundaries,
+bounded owned waypoint interpolation and invalid boundary inputs. The combined
+focused run passed **63 tests**, with 35 warnings, in 6.67 s. Ruff and whitespace
+checks passed. No new production source changed, so the earlier full-framework
+baseline remains a historical result, not a newly rerun suite. No training,
+policy promotion, model/physics/sensor changes, resets into favourable grasp
+poses or hardware actuation occurred. All old policies and code remain intact.
+
+Next investigation, requiring a separately bounded path rather than a retry of
+this one: establish a genuinely object-clear retreat/preshape trajectory through
+existing servo commands, then revalidate approach and coordinated closure.
+This result identifies an early path obstruction, not a need for more NN epochs
+or permission to remove collision geometry.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
