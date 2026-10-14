@@ -8,12 +8,14 @@ import math
 
 import mujoco
 import numpy as np
+from scipy.spatial import ConvexHull, QhullError
 
 
 @dataclass(frozen=True)
 class ClearanceResult:
     passed: bool
     distances: tuple[tuple[str, str, float], ...]
+    certified_pairs: tuple[tuple[str, str], ...] = ()
 
 
 class GeometryClearance:
@@ -21,7 +23,9 @@ class GeometryClearance:
 
     Callers own pair coverage, justified interface exclusions and uncertainty
     margins. No automatic parent/same-limb exemptions are made here. Distances
-    at the search cutoff are lower bounds; zero/ambiguous distances fail closed.
+    at the search cutoff are lower bounds. Zero mesh distances can pass only
+    with an independent separating-plane certificate; other ambiguity fails
+    closed. Certified values are lower bounds, not exact surface distances.
     One instance owns one scratch state and is not shared across worker threads.
     """
 
@@ -45,6 +49,40 @@ class GeometryClearance:
             resolved.append((tuple(pair), ids))
         self.model, self.data = model, mujoco.MjData(model)
         self.pairs, self.margin_m = tuple(resolved), float(margin_m)
+        self._meshes = {}
+
+    def _mesh(self, geom):
+        if geom not in self._meshes:
+            if self.model.geom_type[geom] != mujoco.mjtGeom.mjGEOM_MESH:
+                self._meshes[geom] = None
+            else:
+                mesh = int(self.model.geom_dataid[geom])
+                start, count = int(self.model.mesh_vertadr[mesh]), int(self.model.mesh_vertnum[mesh])
+                vertices = self.model.mesh_vert[start:start + count].astype(float)
+                try:
+                    normals = ConvexHull(vertices).equations[:, :3]
+                    self._meshes[geom] = (vertices, normals)
+                except QhullError:
+                    self._meshes[geom] = None
+        return self._meshes[geom]
+
+    def _separation_bound(self, ids):
+        meshes = [self._mesh(g) for g in ids]
+        if any(mesh is None for mesh in meshes):
+            return None
+        points, axes = [], []
+        for geom, (vertices, normals) in zip(ids, meshes, strict=True):
+            rotation = self.data.geom_xmat[geom].reshape(3, 3)
+            points.append(vertices @ rotation.T + self.data.geom_xpos[geom])
+            axes.append(normals @ rotation.T)
+        directions = np.concatenate(axes)
+        projections = [p @ directions.T for p in points]
+        a, b = projections
+        gap = float(np.maximum(b.min(axis=0) - a.max(axis=0),
+                               a.min(axis=0) - b.max(axis=0)).max())
+        # Any exhibited separating plane proves a lower bound for the convex
+        # hulls. A nonpositive result proves nothing; retain fail-closed zero.
+        return gap - 1e-8 if math.isfinite(gap) and gap > 1e-8 else None
 
     def check(self, qpos):
         pose = np.asarray(qpos, dtype=float)
@@ -52,11 +90,17 @@ class GeometryClearance:
             raise ValueError('clearance needs a complete finite model qpos')
         self.data.qpos[:] = pose
         mujoco.mj_forward(self.model, self.data)
-        distances = []
+        distances, certified = [], []
         for names, ids in self.pairs:
             distance = float(mujoco.mj_geomDistance(
                 self.model, self.data, *ids, 2 * self.margin_m, None))
             if not math.isfinite(distance):
                 raise RuntimeError('geometry query returned nonfinite clearance')
+            if distance == 0:
+                bound = self._separation_bound(ids)
+                if bound is not None and bound >= self.margin_m:
+                    distance = bound
+                    certified.append(names)
             distances.append((*names, distance))
-        return ClearanceResult(all(d >= self.margin_m for _, _, d in distances), tuple(distances))
+        return ClearanceResult(all(d >= self.margin_m for _, _, d in distances),
+                               tuple(distances), tuple(certified))

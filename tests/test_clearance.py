@@ -51,3 +51,40 @@ def test_nonfinite_distance_is_rejected_not_reported_clear(model, monkeypatch):
     monkeypatch.setattr(mujoco, 'mj_geomDistance', lambda *args: float('nan'))
     with pytest.raises(RuntimeError):
         check.check(model.qpos0)
+
+
+@pytest.mark.parametrize('separation,expected', [(.05,True),(.0205,False),(.02,False),(.015,False)])
+def test_zero_mesh_distance_needs_an_independent_separation_certificate(monkeypatch,separation,expected):
+    from mjrl.clearance import GeometryClearance
+    model=mujoco.MjModel.from_xml_string('''<mujoco><asset><mesh name="cube" vertex="
+      -.01 -.01 -.01  .01 -.01 -.01  -.01 .01 -.01  .01 .01 -.01
+      -.01 -.01 .01   .01 -.01 .01   -.01 .01 .01   .01 .01 .01"/></asset><worldbody>
+      <body name="a"><freejoint/><geom name="a" type="mesh" mesh="cube" contype="0" conaffinity="0"/></body>
+      <body name="b" pos=".05 0 0"><freejoint/><geom name="b" type="mesh" mesh="cube" contype="0" conaffinity="0"/></body>
+      </worldbody></mujoco>''')
+    pose=model.qpos0.copy()
+    pose[7]=separation
+    monkeypatch.setattr(mujoco,'mj_geomDistance',lambda *args:0.)
+    result=GeometryClearance(model,[('a','b')],margin_m=.001).check(pose)
+    assert result.passed is expected
+    if expected:
+        assert result.certified_pairs == (('a','b'),)
+        assert result.distances[0][2] >= .001
+
+
+def test_certificate_uses_geom_frames_after_a_shared_world_rotation(monkeypatch):
+    from mjrl.clearance import GeometryClearance
+    model=mujoco.MjModel.from_xml_string('''<mujoco><asset><mesh name="cube" vertex="
+      -.01 -.01 -.01  .01 -.01 -.01  -.01 .01 -.01  .01 .01 -.01
+      -.01 -.01 .01   .01 -.01 .01   -.01 .01 .01   .01 .01 .01"/></asset><worldbody>
+      <body name="a"><freejoint/><geom name="a" type="mesh" mesh="cube"/></body>
+      <body name="b" pos=".05 0 0"><freejoint/><geom name="b" type="mesh" mesh="cube"/></body>
+      </worldbody></mujoco>''')
+    pose=model.qpos0.copy()
+    pose[:3]=[2.,3.,4.]
+    pose[7:10]=[2.,3.05,4.]
+    pose[3:7]=pose[10:14]=[np.sqrt(.5),0,0,np.sqrt(.5)]
+    monkeypatch.setattr(mujoco,'mj_geomDistance',lambda *args:0.)
+    result=GeometryClearance(model,[('a','b')],margin_m=.001).check(pose)
+    assert result.passed
+    np.testing.assert_allclose(result.distances[0][2],.03,atol=1e-8)
