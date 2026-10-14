@@ -176,16 +176,39 @@ class LeftPickupTeacher(TimedLeftPickupTeacher):
     def __init__(self, env):
         super().__init__(env)
         from mjrl.clearance import GeometryClearance
-        from .collision import nonadjacent_arm_pairs
+        from .collision import nonadjacent_arm_pairs, non_insert_object_pairs, non_claw_object_pairs
         # Experimental simulator planning margin, not hardware clearance.
         self.clearance = GeometryClearance(self.model, nonadjacent_arm_pairs(self.model),
                                            margin_m=.001)
+        object_name = self.term.object_names[int(self.term.object_index[0])]
+        self.object_clearance = GeometryClearance(
+            self.model, non_insert_object_pairs(self.model, object_name), margin_m=.001)
+        self.grasp_clearance = GeometryClearance(
+            self.model, non_claw_object_pairs(self.model, object_name), margin_m=.001)
         self.arm_qadr = self.model.jnt_qposadr[
             [self.model.joint(f'robot/LF_J{i}_joint').id for i in range(5)]]
+        self.finger_dadr = int(self.model.joint('robot/LF_J4_joint').dofadr[0])
         self.phase, self.entered, self.last_elapsed = 'settle', 0., -1.
         self.arrival_samples, self.pinch_samples = 0, 0
+        self.support_samples = 0
         self.closed, self.blocked_reason = False, None
         self.approach = self.start.copy()
+
+    def support_feet(self):
+        """Measured ground contacts; native teacher only, never actor inputs."""
+        import mujoco
+        model, data = self.env.sim.env_mjdata(0)
+        feet = {'RF': 'robot/RF_palm_pad_b_link_meshcol',
+                **{p: f'robot/{p}_foot_tip_link_meshcol' for p in ('LM', 'RM', 'LR', 'RR')}}
+        found = set()
+        for contact in data.contact[:data.ncon]:
+            if contact.dist > 0:
+                continue
+            for a, b in ((int(contact.geom1), int(contact.geom2)),
+                         (int(contact.geom2), int(contact.geom1))):
+                if model.geom_type[b] == mujoco.mjtGeom.mjGEOM_PLANE:
+                    found.update(p for p, name in feet.items() if model.geom(a).name == name)
+        return frozenset(found)
 
     def __call__(self, elapsed):
         from ..five_foot.tools.pickup_check import GRASP_OFFSET
@@ -196,8 +219,15 @@ class LeftPickupTeacher(TimedLeftPickupTeacher):
         self.data.qpos[:] = self.env.sim.data.qpos[0].cpu().numpy()
         ev = self.term.evidence
         ev.update()
-        if self.phase == 'settle' and elapsed > 1.:
-            self.phase, self.entered = 'approach', elapsed
+        if self.phase == 'settle':
+            ready = elapsed > 1. and len(self.support_feet()) == 5
+            self.support_samples = self.support_samples + 1 if ready else 0
+            if self.support_samples >= 10:
+                self.phase, self.entered = 'approach', elapsed
+            elif elapsed > 4.:
+                self.phase, self.blocked_reason = 'blocked', 'stable five-foot support timeout'
+        elif self.phase != 'blocked' and len(self.support_feet()) < 4:
+            self.phase, self.blocked_reason = 'blocked', 'support contact lost'
         if self.phase == 'approach':
             goal = (self.term.object_data('root_link_pos_w')[0].cpu().numpy() +
                     GRASP_OFFSET * float(self.term.scales[self.term.object_index][0]))
@@ -230,8 +260,12 @@ class LeftPickupTeacher(TimedLeftPickupTeacher):
         if self.phase == 'blocked':
             target = self.term.targets[0, :4].cpu().numpy()
         action = torch.zeros(1, 5, device=self.env.device)
+        from mjrl.manipulation import joint_segment_step
+        current = self.term.targets[0, :4].cpu().numpy()
+        next_target = joint_segment_step(current, target,
+                                        max_delta=self.term.cfg.arm_speed * self.env.step_dt)
         action[:, :4] = torch.as_tensor(
-            (target - self.term.targets[0, :4].cpu().numpy()) /
+            (next_target - current) /
             (self.term.cfg.arm_speed * self.env.step_dt), device=self.env.device)
         action[:, 4] = 1. if self.closed else -1.
         action = bounded_action(action)
@@ -242,6 +276,11 @@ class LeftPickupTeacher(TimedLeftPickupTeacher):
                 self.term.cfg.arm_speed * self.env.step_dt).cpu().numpy()
             target[self.arm_qadr[4]] = (self.term.cfg.closed_angle if self.closed
                                        else self.term.cfg.open_angle)
+            from ..five_foot.mdp.gripper import squeeze_limited
+            angle = self.env.sim.data.qpos[0, self.arm_qadr[4]]
+            speed = self.env.sim.data.qvel[0, self.finger_dadr]
+            target[self.arm_qadr[4]] = float(squeeze_limited(
+                torch.as_tensor(target[self.arm_qadr[4]]), angle, speed=speed))
             count = max(1, int(np.ceil(np.abs(target[self.arm_qadr] -
                                              actual[self.arm_qadr]).max() / .009)))
             if count > 1024:
@@ -251,6 +290,15 @@ class LeftPickupTeacher(TimedLeftPickupTeacher):
                     result = self.clearance.check(actual + fraction * (target - actual))
                     if not result.passed:
                         self.phase, self.blocked_reason = 'blocked', 'conservative self-clearance rejected'
+                        self.clearance_rejection = result
+                        break
+                    closing = self.phase in ('close', 'lift')
+                    object_guard = self.grasp_clearance if closing else self.object_clearance
+                    result = object_guard.check(actual + fraction * (target - actual))
+                    if not result.passed:
+                        self.phase = 'blocked'
+                        self.blocked_reason = ('non-claw object clearance rejected' if closing
+                                               else 'non-insert object clearance rejected')
                         self.clearance_rejection = result
                         break
             if self.phase == 'blocked':

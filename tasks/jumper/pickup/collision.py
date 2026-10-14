@@ -38,6 +38,44 @@ def nonadjacent_arm_pairs(model):
     return tuple(pairs)
 
 
+def non_insert_object_pairs(model, object_name):
+    """Teacher approach must not push an object with the palm/finger bodies."""
+    if not isinstance(object_name, str) or not object_name:
+        raise ValueError('object geometry scope needs a nonempty entity name')
+    objects = [model.geom(g).name for g in range(model.ngeom)
+               if (model.geom(g).name or '').startswith(object_name + '/')]
+    arm = [model.geom(g).name for g in range(model.ngeom)
+           if (model.geom(g).name or '').startswith('robot/LF_') and
+           '_meshcol' in model.geom(g).name and '_grip_insert_' not in model.geom(g).name]
+    if not objects or not arm:
+        raise ValueError('teacher clearance requires object and left-arm geometry')
+    return tuple((a, b) for a in arm for b in objects)
+
+
+def non_claw_object_pairs(model, object_name):
+    """Grasp permits palm-subtree contact, never support from other robot parts."""
+    if not isinstance(object_name, str) or not object_name:
+        raise ValueError('object geometry scope needs a nonempty entity name')
+    palm = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, 'robot/LF_palm_link')
+    if palm < 0:
+        raise ValueError('left-claw geometry is required')
+    objects = [model.geom(g).name for g in range(model.ngeom)
+               if (model.geom(g).name or '').startswith(object_name + '/')]
+    other = []
+    for geom in range(model.ngeom):
+        name = model.geom(geom).name or ''
+        if not name.startswith('robot/') or '_meshcol' not in name:
+            continue
+        body = int(model.geom_bodyid[geom])
+        while body and body != palm:
+            body = int(model.body_parentid[body])
+        if body != palm:
+            other.append(name)
+    if not objects or not other:
+        raise ValueError('grasp clearance requires object and non-claw robot geometry')
+    return tuple((a, b) for a in other for b in objects)
+
+
 @dataclass(frozen=True)
 class ChassisSpec:
     """Decorate the bench spec factory without copying its jaw/side logic.
