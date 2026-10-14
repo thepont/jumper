@@ -1305,6 +1305,105 @@ completed report and audit, two three-panel videos and the lift-path plot.
 `single-arm-teacher-evidence.zip` packages these with external controls,
 logs, frozen source copies and both unchanged actor checkpoints.
 
+## Grip location audit and rejected centring recipes (2026-10-14)
+
+The user observed that even the scripted teacher grips near an edge, and
+requested better placement of the grasp around the object's middle before
+training. Contact position, not just pickup/placement success, is now part of
+the diagnostic evidence. The canonical teacher targets its fixed-pad point
+using `GRASP_OFFSET = (-.029345020, .019968078, .034235365)` world metres
+relative to the object's origin, scaled with the object. That is an edge/upper
+target, not a two-pad midpoint or the object's centre of mass.
+
+Two preserved external recipe studies ran on the Ryzen 9 3900X, native CPU,
+one world/native/PyTorch thread, 200 Hz physics/50 Hz control, LF near-start
+fixed stance, zero XY jitter and soap scales .975/1/1.025. The first study,
+`logs/jumper/jumper.pickup/center-grasp-teacher-2026-10-14/`, compared legacy
+and a middle-of-the-+y-face prototype on seeds 610018/610017 at each size
+(12 episodes, 20-minute invocation limit). The prototype waits for alignment
+before closure, holds the grasp pose and lifts its grip point vertically at
+20 mm/s using the existing IK branch and servo authority. This is a recipe
+comparison, not an isolation of target, timing or lift speed.
+
+After inspecting bounded read-only IK queries, a second predeclared six-episode
+study at `logs/jumper/jumper.pickup/centerward-quarter-teacher-2026-10-14/`
+tested the same prototype recipe with a target only one-quarter of the way
+from the legacy target toward the middle-face target (12-minute invocation
+limit). Its physical initial qpos/qvel fingerprints match each first-study
+legacy case; sources were frozen and checked for both studies. These are
+selected development seeds, not independent confirmation or NN learning.
+Both invocations exited zero without timeout. Neither ran fitting or changed
+production teachers, actors, observations, physics, rewards or safety criteria.
+
+| Scripted recipe | Episodes | Qualified pickups | Qualified placements | Verified middle grasps | Eligible middle-grip examples |
+|---|---:|---:|---:|---:|---:|
+| Legacy | 6 | 6 | 4 | 0 | 0 |
+| Full middle-face target | 6 | 0 | 0 | 0 | 0 |
+| Quarter-centreward target | 6 | 6 | 5 | 0 | 0 |
+
+The extra placement for the quarter recipe is a descriptive result on tuning
+cases, not statistically verified improvement. All 18 episodes had zero
+recorded chassis penetration and no fall, too-low, invalid-fixture or intrusion
+termination. Timeouts remain failures; this is not hardware safety evidence.
+The earlier progress update stating four quarter-recipe placements was corrected
+by the completed audit to five.
+
+The native `env_mjdata(0)` read-only interface supplies actual pad/object contact
+positions. Contact centroids for each insert are transformed into object
+coordinates as `p_object = R_world_object.T @ (p_world - object_origin)`.
+The diagnostic middle region requires BOTH pad centroids within .35 of the
+object half-width/half-height on its x/z face axes throughout the eleven-frame
+first qualified unsupported-pickup witness. This additional quality bar was
+declared before the initial trial, is not a change to task success, and does
+not prove an optimal grasp or force closure. The plotted rectangle is the x/z
+bounding extent, not a replacement collision shape. Simulator contact truth
+is evidence/teacher-only and is never an actor observation.
+
+The first prototype's exploratory classifier initially also inspected samples
+after the picked flag had latched. The conservative review instead checks the
+eleven-frame FIRST witness, because a latched pickup does not prove current
+unsupported contact. Failing-first controls pin this distinction. Original
+reports are preserved; `final_review.json` carries authoritative audited
+eligibility. All recipes produced zero eligible middle-grip examples and no
+new demonstration tensor was admitted for training.
+
+At the first legacy small-object lift on seed 610018, the fixed pad centroid
+was (-3.388, 16.531, 36.118) mm and the moving pad (-27.737, -16.582,
+25.226) mm in the object frame. The moving pad was about .862 of the x
+half-width from centre; the fixed pad was also high on the object. The
+quarter-centreward recipe moved the fixed contact lower, but its moving
+contact remained near the x edge, so target-point movement alone did not
+produce an opposed middle grip.
+
+Read-only scratch IK queries explain why simply commanding the middle was
+unsuccessful. The small +y-face target at (0.259175, 0.099500, 0.049775) m
+left 25.406--25.502 mm position residual across four declared solver starts.
+The nearer -x-face centre was position-reachable (residual below .001 mm),
+but its estimated closing axis was 29.5--83.1 degrees away from the opposing
+face normal. Thirty-two position-plus-axis queries across four faces, both
+axis signs and four starts found none below the declared 4 mm/10 degree
+screen; the best-position result still had 12.881 mm/17.455 degree errors.
+An interpolation screen found the quarter target position-reachable; halfway
+to the centre left 5.889 mm error, explaining the conservative second recipe.
+These finite numerical searches are not global impossibility proofs, collision
+checks, path validation or hardware calibration. The scratch queries never
+wrote robot/object state. The full-centre prototype never reached pinch or
+carry, so those unvisited phases are not validated by its completed run.
+
+Decision: reject both prototypes as a fix for middle-grip training labels;
+preserve the legacy code, actors, all failed trials and source identities.
+Do not train more edge-grip labels and call that better grip placement. The
+next design work must select a feasible opposed-contact pose AND an approach
+that can reach it, potentially including body positioning rather than only
+five fixed-stance claw actions. A change to body positioning or reset layout
+would be a new task/distribution boundary, not a hidden fix to these frozen
+comparisons. No such change was made. Five new geometry/quality/target controls
+failed first, then passed; 37 focused controls/framework checks, Ruff, the
+18-episode fingerprint/source/eligibility audit and whitespace checks passed.
+The full framework suite was not rerun. A scoped evidence ZIP preserves both
+studies, contact CSVs/plot, read-only query results, source copies, probes and
+logs; no books, secrets or unrelated changes are included.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
