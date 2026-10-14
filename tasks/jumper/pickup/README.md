@@ -8,6 +8,47 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Fresh 10,000-update Gemini run — 2026-10-15
+
+The user authorised a longer run on the faster machine after the 1,000-update
+policies achieved no qualified pickups. This is **fresh** PPO at seed 970001,
+not a resume: 10,000 updates, eight worlds and 64 rollout steps give exactly
+5,120,000 environment steps. It retains the Gemini native CPU runtime, two
+native threads, one PyTorch thread, 60-second training episodes, original
+rewards/physics/synthetic sensors and the explicit 1 mm self-clearance guard.
+The central potential/qualified-pickup bonus weights remain 1/250, and SOAP
+scales/jitter remain 0.975/1/1.025 and 2 mm. The sole experimental learning
+change is the total training budget; the prior policies remain untouched.
+
+Training has a six-hour inclusive wall cap and stops on source-hash drift,
+errors or nonfinite actor checkpoint state. Successful training automatically
+permits one separate thirty-minute evaluation of final `model_9999.pt` only.
+The same twelve sixty-second diagnostic scenarios from the short Gemini run
+are reused (eight standard, two small, two large), including its first-scenario
+video. This is exposed diagnostic evidence, not independent confirmation.
+No extra snapshot selection, reward tuning, retries, promotion or deployment
+is authorised. It does not resolve the earlier 30-versus-60-second
+matched-attempt question or establish algorithm improvement from one seed.
+
+An external Observer records exact completed attempts per world and separates
+true terminations from timeout-only endings. Simultaneous termination/truncation
+is counted once; started attempts include each autoreset. It preserves original
+actions and step return values and does not query/change rewards. Counts are
+saved every ten updates alongside steps/time, fixing the missing-count evidence
+for this new run without inventing historical counts. Seven external controls
+passed after failing budget/contract/counter controls; Ruff passed. A fresh
+remote one-update/reload/video smoke passed before launch; initial weights and
+reset hashes match the earlier Gemini run, with a measured 3,000-control-step
+episode limit. No production
+source changes or new full-suite result are claimed.
+
+Protocol, frozen external driver/control copies and local review evidence are
+under `logs/jumper/jumper.pickup/long10k-gemini-2026-10-15/`; active remote files
+are `/home/pont/jumper-horizon-20261015.WYApvB/long10k-20261015/`. All previous
+code, artifacts and checkpoints are preserved. At the preceding measured rate
+of 467 environment steps/second, 5.12 million steps project to about three hours
+of training; this is an estimate, not a completion promise or learning claim.
+
 ### Matched episode-horizon pilot — 2026-10-15
 
 The user authorised one run on each machine to investigate whether the prior
