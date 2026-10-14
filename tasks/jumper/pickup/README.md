@@ -8,6 +8,65 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Matched episode-horizon pilot — 2026-10-15
+
+The user authorised one run on each machine to investigate whether the prior
+30-second training episodes curtailed pickup learning. The frozen comparison
+uses 30 seconds on music-room and 60 seconds on arch-gemini, both native CPU:
+eight worlds, two native threads, one PyTorch thread, seed 970001, 1,000 PPO
+updates of 64 vector steps (512,000 environment steps per run). Training is
+bounded at two hours per host including startup; only successful completion
+automatically starts a separate 30-minute evaluation. No replacements,
+promotion, reward/physics/perception changes or hardware deployment are allowed.
+
+Both conditions retain the experimental central-load potential weight 1,
+canonical-pickup-gated central bonus weight 250, synthetic delayed/noisy
+detections, SOAP scales 0.975/1/1.025, 2 mm position jitter and the 1 mm explicit
+nonadjacent self-clearance failure latch. Only the final update-999 checkpoint
+is evaluated. Both evaluators allow 60 seconds on the same twelve fresh scenarios
+(seeds 980001–980012, eight standard and two each small/large). Success means the
+unchanged physical pickup witness, not reward or contact alone. Loaded-contact
+score >=0.9 for its first eleven witness frames is an auxiliary outcome, not
+equivalent to the historical centroid-fraction <=0.35 measure. This is grasp-first
+evaluation; it establishes neither placement nor general household grasping.
+
+Report denominators, timeouts versus guard stops, per-size pickups, auxiliary
+central pickups, actual first-pickup time and safety regressions. Check matched
+starting-state fingerprints before paired interpretation. These are two fixed
+policies from one seed, with condition confounded by host: hardware, Python and
+CPU wheel build differ even after matching core package release versions. This
+pilot can supply tentative evidence, not prove an algorithm improvement or
+equality. No automatic policy selection or safety relaxation is authorised.
+
+The local training environment uses Python 3.13; Gemini's dedicated Docker
+runtime uses Python 3.12, PyTorch 2.11.0 CPU rather than the untouched container's
+ROCm PyTorch 2.14.0. The frozen source is equivalent to root commit afc7e9e;
+634 source/asset files plus external controls are hash-checked before each
+training chunk and evaluation episode. The old remote dirty checkout, old
+container and all policies remain preserved. The user explicitly allowed
+training-only readiness checks instead of host controller-build gates E/F.
+Inherited AMD wheel metadata in the new runtime is incompatible with its CPU
+torchvision version but unused by this CPU-only path; import paths and actual
+CPU execution must pass the bounded preflight rather than treating metadata as
+runtime proof.
+
+Five external orchestration controls passed after a failing training-horizon
+identity control; fourteen existing external reward/guard checks and sixteen
+framework checkpoint/native checks passed (44 framework warnings). Ruff passed
+for the new driver and controls. Each host passed a one-update training smoke,
+fresh-environment checkpoint reload and short MP4 recording; those checks are
+not evidence of learned pickup. The actor/critic initial-state hash agreed
+(`4040a886...afaf9b8`), as did the eight-world reset hash
+(`0571308b...190f1`), control dt 0.02 seconds and core release versions. Measured
+training limits are 1,500 and 3,000 control steps. No full-suite rerun is claimed.
+
+Evidence is preserved under
+`logs/jumper/jumper.pickup/horizon-pair-2026-10-15/` locally and
+`/home/pont/jumper-horizon-20261015.WYApvB/` on Gemini. External driver/control
+copies, manifests, preflight records, reports, logs, final checkpoints and the
+first non-selected evaluation clip are retained. Incomplete runs are reported
+as incomplete, never replaced automatically.
+
 ### Teacher clearance repair — 2026-10-14
 
 The default left pickup teacher now uses measured arrival (10 samples within
