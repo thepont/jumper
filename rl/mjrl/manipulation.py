@@ -69,6 +69,28 @@ class JointPathResult:
     reason: str
 
 
+def joint_segment_step(current, goal, *, max_delta):
+    """Advance every scalar joint by one shared fraction of a checked segment.
+
+    Per-joint clipping changes the path when joints have unequal distances.
+    This bounds commanded increments; physical tracking still needs checking.
+    """
+    initial = np.asarray(current, dtype=float)
+    if initial.ndim != 1 or not 1 <= len(initial) <= 32:
+        raise ValueError('joint segment requires 1..32 scalar joints')
+    initial = _vector(initial, len(initial), 'current joints')
+    final = _vector(goal, len(initial), 'goal joints')
+    if (isinstance(max_delta, (bool, np.bool_)) or
+            not isinstance(max_delta, (int, float, np.integer, np.floating)) or
+            not math.isfinite(max_delta) or not 0 < max_delta <= math.pi):
+        raise ValueError('joint increment must be finite in (0, pi] radians')
+    delta = final - initial
+    if not np.isfinite(delta).all():
+        raise ValueError('joint displacement must be finite')
+    distance = float(np.abs(delta).max())
+    return initial + delta * min(1., max_delta / distance) if distance else initial.copy()
+
+
 def shortcut_joint_path(waypoints, is_valid, *, max_checks=10000,
                         resolution_rad=.025) -> JointPathResult:
     """Remove intermediate stops only across checked collision-free segments.
