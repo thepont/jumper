@@ -1232,6 +1232,79 @@ intervention controls were observed failing first, then passed; 46 focused
 intervention/trace/framework checks, the command-tape audit, Ruff and whitespace
 checks passed. The full framework was not rerun.
 
+## Single-arm scripted/learned lift comparison (2026-10-14)
+
+The user chose to continue with one claw rather than introducing two-arm
+coordination. The bounded diagnostic at
+`logs/jumper/jumper.pickup/single-arm-teacher-check-2026-10-14/` ran six
+episodes: the unchanged canonical `LeftPlacementTeacher`, the frozen run 1
+initializer and the frozen failed narrower actor, each on previously observed
+small-object seeds 610018 and 610017. This is diagnosis on selected cases, not
+fresh confirmation, training or checkpoint selection. No fitting followed it.
+
+Ryzen 9 3900X, native CPU, one world/native/PyTorch thread, 200 Hz physics and
+50 Hz control; LF near-start fixed layout, one soap shape at scale .975,
+existing synthetic noisy detections and all physical failure/success criteria
+unchanged. A 20-minute invocation limit bounded the six recordings; it exited
+zero without timeout. All three controllers have identical initial actor
+observation/qpos/qvel fingerprints within each case. Source and checkpoint
+hashes were checked after completion. The teacher adapter starts its canonical
+reset-relative clock at zero, including the normal settling period, rather
+than shifting the pickup/lift schedule by a second.
+
+| Case / controller | Qualified pickup | Qualified placement | First pickup (s) | Maximum whole-hull clearance (mm) | Episode end (s) |
+|---|---|---|---:|---:|---:|
+| 610018 / scripted teacher | yes | yes | 5.18 | 36.544 | 12.68 |
+| 610018 / run 1 NN | yes | yes | 6.28 | 37.583 | 15.84 |
+| 610018 / newer NN | no | no | — | 1.901 | 30.00 timeout |
+| 610017 / scripted teacher | yes | yes | 4.58 | 33.501 | 11.14 |
+| 610017 / run 1 NN | yes | yes | 4.80 | 37.270 | 15.60 |
+| 610017 / newer NN | yes | yes | 6.70 | 28.316 | 13.74 |
+
+All six episodes had zero recorded maximum chassis penetration and no fall,
+too-low, invalid-fixture or intrusion termination. This limited observation
+does not establish hardware safety or general robustness. The teacher uses
+privileged simulator state for IK and phase transitions; neither NN receives
+it. The reused evaluator prints `NN_EVALUATION` even for the supplied teacher
+adapter, so that log prefix alone is not evidence of neural control. CSVs,
+reports and video labels explicitly identify the scripted condition.
+
+For 610018 the teacher held a qualifying unsupported grasp for a longest
+3.34-second interval, transitioned to carry at 5.20 s, lower at 10.98 s and
+release at 11.60 s. Run 1 held a longest 8.54-second qualifying interval;
+the newer NN had none. At 5.00 s the teacher was already unsupported at
+16.986 mm clearance with LF_J1/LF_J3 at -2.173/-.042 rad. Run 1 followed
+a different successful route (-1.916/-.800 rad, 5.948 mm clearance then),
+whereas the newer actor remained supported (-1.907/-.480 rad, -.383 mm
+clearance) and subsequently reversed LF_J1 motion before qualifying a lift.
+Two different successful routes mean a single joint-angle prescription is
+not justified. These observations do not prove that imitation averaged modes,
+that a particular joint is faulty, or that claw/arm input coupling caused the
+failure. The preceding held-claw intervention already showed closure alone
+was insufficient to rescue this case.
+
+NN outcome classes matched the earlier diagnostic; durations differ from the
+original by +.02/-.40 s for run 1 and 0/-.64 s for the newer actor on
+610018/610017 respectively. These are matched starts and reproduced outcomes,
+not bit-exact trajectory reproduction. Videos hold and label the final frame
+after each episode ends. The recorder is the repository's `ReplayVideo`.
+
+Decision: retain run 1 as the promising reference and all existing policies.
+Target subsequent demonstration work at coordinated grasp-to-lift motion and
+closed-claw retention across varied arm poses, with release examples kept
+distinct and whole-episode qualification intact. Verify example sufficiency
+before fitting, then use fresh matched NN-only evaluations to test improvement;
+do not infer it from these scripted successes or a lower imitation loss.
+No observations, rewards, physics, effort caps, joint limits, production code,
+hardware deployment or two-arm task were changed. Two adapter controls failed
+first, then passed; 32 focused adapter/trace/intervention/framework checks,
+Ruff, the six-trajectory/hash/phase audit and whitespace checks passed. The full
+framework suite was not rerun; its documented unrelated failures remain.
+The evidence directory preserves six CSV/MP4/report sets, the frozen plan,
+completed report and audit, two three-panel videos and the lift-path plot.
+`single-arm-teacher-evidence.zip` packages these with external controls,
+logs, frozen source copies and both unchanged actor checkpoints.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
