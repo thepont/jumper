@@ -217,6 +217,76 @@ steps/six seconds without rejection. Earlier device-type and logger integration
 failures are preserved in their separate preflight directories/logs. No new
 full-suite result is claimed.
 
+#### Final audit: stopped queue, no selected candidate — 2026-10-15
+
+On music-room (Ryzen 3900X, native CPU), the coordinator stopped with
+`stopped-training-error` / `wall-timeout` on run 05. Of six planned jobs,
+four completed training plus all 12 selection episodes, five saved final
+training reports/checkpoints, and run 06 never started. Run 05 reports
+`complete: true` after 1,100 updates, but its process timed out before a
+successful coordinator exit; it has no evaluation or selection decision.
+That report does not override the stopped queue. No retry, replacement,
+confirmation, promotion or deployment was performed.
+
+| Run | Seed | Profile weight | Updates | Training seconds | Selection | Decision |
+|---|---:|---:|---:|---:|---|---|
+| 01 | 930001 | 0 | 1,100 | 2681.002 | 12/12 | baseline preserved |
+| 02 | 930001 | 1 | 970 | 2671.630 | 12/12 | rejected, preserved |
+| 03 | 930001 | 4 | 1,120 | 2671.685 | 12/12 | rejected, preserved |
+| 04 | 930002 | 0 | 1,320 | 2687.710 | 12/12 | baseline preserved |
+| 05 | 930002 | 1 | 1,100 | 2692.750 | absent | unevaluated, preserved |
+| 06 | 930002 | 4 | — | — | absent | not started |
+
+All four evaluated policies produced **zero qualified pickups and zero
+combined central first-witness pickups**: each had 0/8 standard, 0/2 small
+and 0/2 large pickups, totalling 0/48. The combined witness requires raw
+current dual-pad centroid fraction <=0.35 and auxiliary loaded score >=0.9,
+both sustained for the first 11-frame physical pickup witness. No physical
+witness occurred: the saved witness values are null, and maximum auxiliary
+scores are zero throughout. Separate raw per-frame centroid traces were not
+persisted; these reports cannot establish raw central-contact occupancy.
+Per-size retention against the seed-930001 baseline is equality at zero,
+not evidence of retaining a working grip.
+
+| Run | Explicit self-clearance episodes (standard/small/large) | Self-contact episodes | Chassis intrusion | Fall / too low | Invalid fixture | Timeouts |
+|---|---|---:|---:|---:|---:|---:|
+| 01 | 2/0/1 | 1 | 0 | 0/0 | 0 | 9 |
+| 02 | 3/0/2 | 2 | 0 | 0/0 | 0 | 7 |
+| 03 | 1/0/0 | 0 | 0 | 0/0 | 0 | 11 |
+| 04 | 0/0/0 | 0 | 0 | 0/0 | 0 | 12 |
+
+Self-contact overlaps explicit clearance, so unsafe episode totals are
+3/5/1/0, not their summed termination counts. The weight-1 candidate has
+more unsafe episodes than its baseline; weight 4 has fewer but no pickups.
+Neither passes the fixed central-pickup improvement gate: zero candidates
+were experimentally retained, and both rejected candidates remain intact.
+There are no independent confirmation reports. The second training seed
+has only an evaluated baseline, so the planned two-seed recipe comparison
+is incomplete. These selection results do not prove algorithm improvement,
+grip adequacy, placement, actual vision performance or hardware safety.
+
+Audit checked **485/485 frozen source/asset SHA256 hashes**, including the
+external coordinator, with no mismatch; all five final checkpoints match
+their recorded hashes. All 12 seed/size/start-qpos fingerprints match across
+all four evaluations, including each completed candidate/baseline pairing.
+The source snapshot records shared commit `afc7e9e7d92771d8a3f193e31e7a289ea2cc940c`;
+the opt-in module was published separately as `278238b`. Exact final
+checkpoint paths and SHA256 identities are in each run's `training.json`
+and the final evidence archive's audit/manifest. No intermediate checkpoints
+are published; all local policies and artifacts are preserved. The archive
+contains the frozen plan/queue, progress/training/evaluation reports, scoped
+logs, verification copies and final checkpoints. First-standard recordings
+are chronological protocol episodes, not favourable clip selection.
+
+Documentation validation in the isolated publish worktree: `git diff --check`
+passed. The full suite produced 1,307 passes, 24 skips and three failures in
+143.76 seconds. All three reproduced against the unchanged HEAD README:
+missing CycloneDDS `idlc` in deploy provenance, the posture footprint mirror
+assertion, and TensorBoard's lingering-port assertion. They are pre-existing
+failures, not fixed by this evidence-only change. Ruff could not run because
+it is absent from the available environment; the earlier preflight Ruff pass
+remains a separate result. No shared source was changed for these checks.
+
 From the root repository's editable environment:
 
 ```bash
