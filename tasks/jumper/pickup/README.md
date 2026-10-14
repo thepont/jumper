@@ -54,6 +54,77 @@ and Ruff passed. The prior self-contact full-suite run recorded 1,293 passes,
 full-suite run of this teacher change. Controls are preserved beside the new
 integration report rather than added as task-specific framework tests.
 
+### Supported teacher and central-contact investigation — 2026-10-14
+
+On the same local Ryzen 3900X/native CPU fixture, the teacher now waits for
+ten consecutive five-foot ground-contact samples after one second, times out
+after four seconds, and rejects active manipulation with fewer than four support
+contacts. Joint target increments preserve the checked straight joint segment;
+independent joint clipping did not. Aperture prediction uses the existing
+squeeze limiter and measured finger velocity, not an instantaneous full-close
+target. No actuator, reward, perception, collision mask or physics was changed.
+
+Approach rejects non-insert left-arm/object interference. During closure/lift,
+the object's existing palm-subtree contact permission is retained, while contact
+with other robot parts is rejected. This is separate from robot self-clearance:
+permitted object/claw contact does not permit the arm to scrape the robot.
+The release integration (`supported-teacher-release-integration-2026-10-14`)
+rejected the first proposed forbidden palm-pad/object gap at 0.99445 mm after
+3.30 simulated seconds, accepting zero episodes. It verifies fail-closed
+collection, not a successful pickup. The historical teacher remains available.
+
+An ambiguous native mesh-distance zero in a proposed lift was independently
+checked in `mesh-gap-audit-2026-10-14`: a convex-hull separating plane certified
+at least 1.95074 mm separation. The adapter now accepts a native zero only if
+compiled mesh geometry independently certifies the requested margin, subtracting
+10 nm for roundoff. Native negative distances are never overridden; insufficient
+or unavailable certificates still reject. This is a conservative lower bound,
+not an exact distance or a model/solver repair. Positive separation, sub-margin,
+touching, overlapping and transformed-frame framework controls cover the change.
+
+The separate servo-driven support prototype achieved a 20 mm forward preparation
+in 329 physical steps with all five feet and at most 3.56 mm recorded foot drift
+(`supported-body-prepare-2026-10-14`). It never writes the live base/object pose
+after reset. A restricted 90-query central reach screen had zero admissions at
+the original stance and 18 after that actual preparation: 13 legacy-reference
+and five facet-centroid candidates. Kinematic admission is not grip evidence.
+The first prepared-screen report had a NumPy-boolean serialization error; its
+incomplete record is preserved, with corrected publication in the separate r2.
+
+Physical legacy-reference runs obtained dual-pad edge pinches but no qualified
+central pickup: contact fractions were approximately 0.8735 and 0.8779 against
+the unchanged 0.35 limit. The first nominal inverted-branch run did not actually
+honour its IK seed; only `central-inverted-contact-r2-physical-2026-10-14`
+executed the inverted branch. Neither enters demonstration fitting.
+The first centroid-target run stopped before approach because its planning guard
+did not match the upcoming grasp contact contract. Two external controls observed
+that defect red, then green. The repaired r2 physically approached but rejected
+the subsequent seating IK (`central-facet-contact-physical-r2-2026-10-14`),
+with zero qualified pickups. Reference-frame replay measured the tangential
+reference-to-centroid displacement as approximately -16.3 mm along object X,
+not Z (`central-reference-frame-audit-2026-10-14`). That can contribute to edge
+contact, but is not an isolated causal proof. A separate bounded 30 mm requested
+servo preparation followed by centroid approach stopped at measured arrival
+timeout after 682 physical steps (`central-facet-30mm-physical-2026-10-14`),
+with all five recorded supports, 6.77 mm final foot drift and no qualified pickup.
+Its inherited intermediate reason text still says 20 mm; the frozen plan and
+source specify 30 mm. The trace, not that stale string, identifies this trial.
+
+These support/central prototypes are not promoted into the actor's five-action
+interface: they command support joints that the existing pickup actor cannot.
+Some early combined prototype plan text incorrectly said support-only commands;
+the preserved source/trace also contains left-claw commands. Those runs are
+diagnostic evidence, not evidence of NN improvement. No NN fitting or PPO was
+run, and no graded centrality reward was added. Training waits for actual central
+pickup and whole-placement qualification; existing policies/data remain intact.
+Adjacent robot interfaces, continuous swept clearance, mask-independent learned
+actor evaluation and hardware safety remain unverified.
+
+Release checks: 80 focused framework/external controls passed (35 warnings,
+4.91 s), Ruff and whitespace checks passed. This is not a new full-suite result;
+the historical baseline above remains separately labelled. Task controls stay
+outside `tests/` and are preserved with the evidence archive.
+
 From the root repository's editable environment:
 
 ```bash
