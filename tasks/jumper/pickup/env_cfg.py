@@ -145,6 +145,11 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
             primary=ContactMatch(mode='geom', pattern=CHASSIS_GEOMS, entity='robot'),
             secondary=ContactMatch(mode='subtree', pattern=f'{side}_upper_arm_link', entity='robot'),
             fields=('found', 'dist'), reduce='mindist', history_length=cfg.decimation))
+    sensors.append(ContactSensorCfg(
+        name='pickup_self_contact',
+        primary=ContactMatch(mode='subtree', pattern='base_link', entity='robot'),
+        secondary=ContactMatch(mode='subtree', pattern='base_link', entity='robot'),
+        fields=('found', 'dist'), reduce='mindist', history_length=cfg.decimation))
     cfg.scene.sensors = tuple(sensors)
     actor_terms = {'proprioception': ObservationTermCfg(func=terms.proprioception),
                    'simulated_detections': ObservationTermCfg(func=terms.detections)}
@@ -169,6 +174,8 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
     cfg.terminations['invalid_fixture'] = TerminationTermCfg(func=terms.outcome, params={'kind': 'invalid'})
     cfg.terminations['chassis_intrusion'] = TerminationTermCfg(
         func=terms.outcome, params={'kind': 'chassis_intrusion'})
+    cfg.terminations['self_contact'] = TerminationTermCfg(
+        func=terms.outcome, params={'kind': 'self_contact'})
     if training_stage == 'place-near':
         # Same real-pickup/containment/release/settling witness, evaluated AFTER
         # failures. Legacy placement keeps its original observable semantics.
@@ -197,6 +204,7 @@ def env_cfg(asset: Path | None = None, play=False, *, claw_side='left',
     cfg.metrics['floor_clearance_m'] = MetricsTermCfg(func=terms.metric,
                                                      params={'kind': 'clearance'}, reduce='max')
     for name, kind in (('chassis_intrusion', 'chassis_intrusion'),
+                       ('self_contact', 'self_contact'),
                        ('chassis_contact_count', 'chassis_contacts'),
                        ('chassis_penetration_m', 'chassis_penetration')):
         cfg.metrics[name] = MetricsTermCfg(func=terms.metric, params={'kind': kind}, reduce='max')

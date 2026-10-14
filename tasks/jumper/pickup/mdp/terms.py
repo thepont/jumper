@@ -103,7 +103,8 @@ def grasp_completed(env):
     evidence.update()
     failed = torch.stack([env.termination_manager.get_term(name)
                            for name in ('fell_over', 'too_low', 'invalid_fixture', 'chassis_intrusion')], 1).any(dim=1)
-    return evidence.picked & evidence.valid_trajectory & ~evidence.invalid_fixture() & ~failed
+    return (evidence.picked & evidence.valid_trajectory & ~evidence.self_contacted &
+            ~evidence.invalid_fixture() & ~failed)
 
 
 def placement_completed(env):
@@ -118,6 +119,8 @@ def outcome(env, *, kind):
         return evidence.invalid_fixture()
     if kind == 'chassis_intrusion':
         return ~evidence.valid_trajectory
+    if kind == 'self_contact':
+        return evidence.self_contacted
     if kind == 'picked' and getattr(getattr(term, 'cfg', None), 'training_stage', 'place') in ('grasp', 'place-near'):
         return grasp_completed(env)
     if kind == 'success' and getattr(getattr(term, 'cfg', None), 'training_stage', 'place') == 'place-near':

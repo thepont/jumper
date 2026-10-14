@@ -45,6 +45,7 @@ class PickupRunner(MjlabOnPolicyRunner):
                 'joint_names': list(term.cfg.joint_names),
                 'object_scales': list(term.cfg.object_scales),
                 'physics': 'full-cad-chassis+distal-front-arm-contact+substep-intrusion/2',
+                'self_contact_guard': 'detected-robot-touch+substep-penetration-latch/1',
                 'actor_inputs': 'proprioception+delayed-noisy-position-size/1',
                 'rewards': 'discounted-potentials+unsupported-pickup-settled-place/1'}
         if stage == 'grasp':

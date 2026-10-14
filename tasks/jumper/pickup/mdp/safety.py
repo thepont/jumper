@@ -2,6 +2,16 @@
 import torch
 
 
+def robot_self_contact(env):
+    """Reject detected robot/robot touch, including resolved substep penetration.
+
+    This does not certify positive clearance or detect mask-excluded pairs.
+    Unmatched history slots are zero, so they must not be treated as contacts.
+    """
+    data = env.scene['pickup_self_contact'].data
+    return data.found.gt(0).any(dim=1) | data.dist_history.lt(0).any(dim=(1, 2))
+
+
 def chassis_penetration(env):
     """Deepest contact across both arms and every substep of this control frame.
 

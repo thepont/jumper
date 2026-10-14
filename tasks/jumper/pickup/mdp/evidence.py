@@ -3,7 +3,7 @@ import math
 
 import torch
 from mjlab.utils.lab_api.math import quat_apply, quat_apply_inverse
-from .safety import chassis_penetration
+from .safety import chassis_penetration, robot_self_contact
 
 
 class PickupEvidence:
@@ -29,6 +29,7 @@ class PickupEvidence:
         self.success = torch.zeros_like(self.picked)
         self.initial_clear = torch.ones_like(self.picked)
         self.valid_trajectory = torch.ones_like(self.picked)
+        self.self_contacted = torch.zeros_like(self.picked)
         self.initial_outside = torch.zeros_like(self.picked)
         self.initialized = torch.zeros_like(self.picked)
         self.anchor = torch.zeros(env.num_envs, len(hull), 3, device=env.device)
@@ -47,6 +48,7 @@ class PickupEvidence:
             value[ids] = False
         self.initial_clear[ids] = True
         self.valid_trajectory[ids] = True
+        self.self_contacted[ids] = False
 
     def grip_point(self):
         data = self.env.scene['robot'].data
@@ -79,8 +81,9 @@ class PickupEvidence:
         self.initial_clear[settling] &= ~contact[settling]
         self.valid_trajectory[fresh] &= (chassis_penetration(env)[fresh] <=
                                          self.max_chassis_penetration_m)
+        self.self_contacted[fresh] |= robot_self_contact(env)[fresh]
         eligible = (self.initial_outside & self.initial_clear & self.valid_trajectory &
-                    (elapsed > 1.))
+                    ~self.self_contacted & (elapsed > 1.))
         grips = torch.stack([env.scene[f'pickup_grip_{i}'].data.found.gt(0).all(dim=1)
                               for i in range(len(self.objects.object_names))], 1)
         self.pinched[:] = grips[rows, self.objects.object_index]

@@ -1769,6 +1769,52 @@ old code, demonstrations and policies remain preserved.
 
 ## Chassis collision boundary
 
+### Detected self-contact qualification and remaining clearance gap (2026-10-14)
+
+Pickup now separately latches detected robot-to-robot contact as a failed episode:
+any current matched contact, or negative signed distance recorded in a physics
+substep, prevents qualified pickup and placement. The latch survives separation
+and is cleared only for reset environments. A whole-robot/whole-robot sensor
+excludes terrain and task objects by its matching scope. Chassis penetration
+remains a separate diagnostic; its historical 2 mm tolerance no longer grants
+permission for a currently detected robot self-contact. Zero-distance transient
+touch that has resolved before the control sample is not established by the
+distance history, whose absent entries are also zero. Positive clearance still
+requires a separate planning check.
+
+This is a qualification fix, **not complete self-collision coverage**: masks,
+parent filtering, CAD, physics, walking configurations and actor inputs are
+unchanged. Same-arm masked pairs remain invisible to contact sensors. Checkpoint
+contracts now include `self_contact_guard`; old policies are preserved but cannot
+be silently loaded as if qualified under this stricter contract. No new training
+or policy promotion was performed.
+
+A native CPU mask-independent audit queried 863 front-arm/robot geometry pairs
+in each of three scratch states, with zero physics steps and unchanged live
+state. Same-rigid-body pairs were reported separately; adjacent bodies were
+measured, not silently declared safe. The 5 mm search cutoff is diagnostic, not
+an approved clearance margin. In the saved preparation-start pose, masked LF
+finger pieces overlap the forearm collision hull by up to **9.024 mm** and the
+upper-arm hull by **8.701 mm**. The supporting RF finger/forearm hull overlap is
+**3.732 mm**, present also in the saved LF preparation-goal state. Reset has two
+non-adjacent pairs within the cutoff, both positive base/upper-arm distances
+(3.535 mm LF and 3.733 mm RF). These are discrete collision-hull measurements,
+not proof of corresponding CAD intersection or continuous path clearance.
+
+Evidence: `logs/jumper/jumper.pickup/self-clearance-audit-2026-10-14/report.json`.
+The saved stowed/support poses must not be presented as scrape-free. Next work
+must validate the implicated geometry and define explicit non-mating pair
+coverage/clearance before reusing those poses; globally enabling all pairs is
+not justified by this audit.
+
+Six external controls failed before implementation; nine expanded controls then
+passed (38 warnings, 7.39 s). They cover
+clear/touching fixtures, resolved substep penetration, completion veto, checkpoint
+identity, latch persistence and partial reset, with a two-world native clear
+fixture. Focused framework validation passed 48 tests (35 warnings, 5.21 s);
+Ruff and whitespace checks passed. Task-specific controls and the audit script
+remain outside the framework test suite, following repository policy.
+
 Pickup decorates the existing bench spec factory rather than modifying the
 walking model or duplicating jaw/side configuration. All five chassis components
 (base, upper shell, display, camera and ToF housing) use their full CAD meshes as
