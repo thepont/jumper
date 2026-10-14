@@ -1489,6 +1489,74 @@ framework checks and Ruff passed. The full framework suite was not rerun.
 the scoped evidence archive contains plans, sources, probes, traces, logs and
 videos, without books, credentials or unrelated changes.
 
+### Closure-aware rejection prototype (2026-10-14)
+
+Decision: keep the production teacher and all checkpoints unchanged. An
+external teacher-local closure prediction now rejects an unqualified closing
+path **before approach**, rather than relying on point/orientation IK followed
+by a blind close. It is a conservative candidate filter, not a central-grip
+fix, physical force-closure proof or a new training contract. No NN training,
+qualified examples, policy promotion, physics changes or hardware work ran.
+The local Ryzen 9 3900X/native CPU MuJoCo 3.11.0 setup remained one world and
+one native/PyTorch thread, 200 Hz physics and 50 Hz control.
+
+The preserved `closure-aware-screen-2026-10-14` study tested 72 scratch IK
+queries: nine object X/Z targets, four starts, and the valid legacy on-facet
+reference versus the measured facet centroid. At hypothetical body X +60 mm,
+six passed the unchanged 4 mm/10 degree IK/alignment screen. None survived
+65 sampled jaw angles against active collision hulls. Both pad signed
+distances had to be within +/-2 mm, both contact-centroid or closest-point
+proxies within .35 X/Z half-extents, and no earlier non-insert object contact
+over 2 mm, LF/floor penetration over .2 mm or protected robot penetration over
+2 mm was permitted. These are scratch candidate conditions; canonical
+first-witness physical qualification still applies separately.
+
+To distinguish arm reach from rigid jaw fit, `closure-shape-fit-2026-10-14`
+tested 108 virtual rigid placements using the facet-centroid reference and
+12 rolls about the object-face normal. Its `-r2` study tested 972 placements,
+adding -7/0/+7 degree tilts around two world axes and centroid X/Z offsets
+-0.6/0/+0.6 of object half-extents. The centroid need not be central; the
+**contact** centrality threshold stayed .35. The second study kept the whole
+fixed insert at least .5 mm outside the object's +Y face initially. Neither
+study found a surviving sampled closure. They deliberately ignored support,
+floor and other-robot contacts when classifying rigid object fit; they are
+not reachable or safe teacher poses. All transforms were applied only to
+scratch `MjData`, never live robot/object state. Four independent MuJoCo
+transform spot checks measured at most 1.567e-8 m point error and 4.417e-8
+rotation-matrix error. Every query was preserved separately and all reports
+completed at their predeclared counts without physics steps.
+
+The bounded physical `closure-aware-pilot-2026-10-14` used the existing
+servo-driven positioning scaffold on selected small SOAP seed 610018, scale
+.975. At its measured body pose, 19 of 36 IK candidates received a closure
+sweep; all were rejected. The pilot stopped after 536 frames / 10.72 simulated
+seconds, before any approach or closure frames. Maximum support-foot drift
+was 6.688 mm under the unchanged 8 mm guard and no existing episode failure
+termination fired. Zero pickups or central grips were produced. This verifies
+the prototype's conservative rejection path, not successful manipulation.
+
+Important limitation: a closest point between flat faces can be nonunique.
+Positive-distance points are **not actual pad contact centroids**, and a
+frozen object does not capture its displacement, rotation or friction during
+closure. Thus these finite failures do not prove that the claw cannot grip
+centrally or that CAD/physics is wrong. The representative `closure-path.png`
+separates scratch collision-contact samples from closest-point proxies and
+marks the first rejected closure region. Do not reduce the acceptance bar or
+turn these geometric queries into training examples. The next diagnostic
+should examine finite insert contact regions and swept finger hulls against
+the source geometry, addressing closest-point ambiguity before further pose
+selection; any retained pose still needs an actual canonical central-lift
+witness and independent physical cases before training it as reliable.
+
+Six new policy/frame controls failed before implementation; seven new controls
+passed, including a native MuJoCo positive-control gripper so the sweep cannot
+pass by rejecting every model. In total 54 focused external/framework checks,
+four transform checks, completed-count/frozen-source/physical rejection audits,
+Ruff and whitespace checks passed. The full framework suite was not rerun.
+All old code, policies, artifacts and unrelated dirty changes remain preserved.
+The scoped evidence archive contains all three finite searches, pilot video
+and trace, source identities, probes, logs, review and plot, not books or secrets.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
