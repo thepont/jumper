@@ -1404,6 +1404,91 @@ The full framework suite was not rerun. A scoped evidence ZIP preserves both
 studies, contact CSVs/plot, read-only query results, source copies, probes and
 logs; no books, secrets or unrelated changes are included.
 
+### Insert-normal and servo-positioning development audit (2026-10-14)
+
+Decision: retain the production teacher and all actors. No neural-network
+training, qualified training labels or policy promotion resulted from this
+development audit. The middle-grip step is **not complete**. The following
+external prototypes concern one selected LF small-soap case (seed 610018,
+scale .975), not held-out policy improvement, all objects or hardware safety.
+Sources and failed results are preserved under
+`logs/jumper/jumper.pickup/insert-alignment-2026-10-14` and
+`central-positioning-pilot-2026-10-14` with distinct revision suffixes.
+The host was the local Ryzen 9 3900X, native CPU MuJoCo 3.11.0, one world and
+one native/PyTorch thread, 200 Hz physics and 50 Hz control.
+
+Collision-mesh facet measurements found the fixed insert outward normal in
+palm coordinates to be `[-.000056693, -.174105885, -.984726935]`. It differs
+from the legacy visual-derived axis by 9.717 degrees. The old contact reference
+is **on the facet plane**: its 16.374 mm displacement from the facet centroid
+is tangential, not evidence that the point is invalid. Neither discrepancy
+alone proves the cause of the old edge grips. The soap's broad faces are +/-Y.
+For a fixed pad approaching its +Y face, the signed insert-normal target is
+world -Y; a face-normal plane constraint would instead make it tangent.
+The selected facets have 36.396 mm normal separation and 15.949 degrees
+opposition error at jaw -.587223 rad. These finite-patch measurements are not
+force-closure proof or a requirement for exactly parallel pads.
+
+The corrected scratch screen accepted 18 of 243 point/orientation queries,
+all at hypothetical body X +60 mm, none at X 0 or +30 mm. It used one start
+per target and one valid reference point; it does not prove global
+unreachability, collision-free travel or necessity of body movement. Its first
+version failed JSON serialisation; the corrected report is in `screen-r2`.
+Four retreat candidates passed separate bounded arm-path and support-foot
+scratch checks. Physical pilots subsequently moved the body using support-leg
+servo targets only, never post-reset robot/object pose writes, welds or forces.
+Global geometry, physics, perception, rewards and the actor's 117-input /
+five-action contract remained unchanged. The additional support-leg commands
+are privileged teacher controls, **not compatible five-action training labels**.
+
+Measured development outcomes:
+
+| Pilot | Simulated time | Outcome |
+|---|---:|---|
+| initial | 1.02 s | Upward stow IK residual rejected |
+| r2 | 14.56 s | Body advanced 60.93 mm; XYZ tracking timeout |
+| r3 | 10.72 s | Bounded body feedback reached 1.639 mm XYZ error; single grasp IK screen rejected |
+| r4 | 17.42 s | Multiple actual-pose IK starts found a sampled corridor; runtime collision guard stopped approach |
+| r5 | 18.74 s | Phase-specific contact correction passed the earlier stop; approach timeout, no pinch |
+| r5-observed2 | 18.74 s | Same controller/result; joint logging exposed an infeasible time budget |
+| r6 | 20.32 s | Reached measured alignment and entered closure; finger-body/object closure screen rejected |
+
+The first observability repeat failed after simulation while serialising a
+tuple of waypoints; its report/trace are incomplete and its video/log remain
+preserved. A regression and output-only correction preceded the completed
+repeat. It is not an independent evaluation episode. An initial suspicion
+that the servo target was limit-clipped was disproved: the no-physics limit
+audit in `limits.json` found matching native/action ranges (LF J2 -2.2..1.65
+rad). The target was still rate-limited and progressing. The measured path's
+nominal speed lower bound was 8.324 s, already longer than the original 8 s
+approach deadline before settling and perception pauses. R6 used a calculated
+15 s deadline with the same .45 rad/s speed, capped at 25 s per approach and
+45 s per pilot. It did not increase servo speed or bypass detection gates.
+
+R6 entered closure for three physical control frames, with zero dual-pad pinch,
+zero central-contact frames and zero qualified lifts. The support scratch
+collision query then predicted 4.469 mm penetration between
+`LF_finger_link_meshcol2` and the small soap during closure, exceeding its
+2 mm claw-subtree/object guard. This is a **predicted overlap in the support
+query**, not a measured chassis intrusion or a hardware force. Maximum
+support-foot drift was 7.867 mm under the unchanged 8 mm guard; no existing
+episode failure termination fired. This is not proof of safe closure. The
+first canonical 11-frame witness, both actual pad centroids within .35 of
+object X/Z half-extents, and continued unsupported central lift remain required.
+
+Next design work must check both finite insert patches and the swept finger
+body through closure, then choose a contact-aware approach that establishes
+dual-pad contact without first pushing/interfering with the object. A reachable
+point and normal alone are insufficient. Do not loosen the centrality/contact
+guards or collect more edge-grip labels as a substitute. All production code,
+old training artifacts and unrelated dirty changes were preserved. New external
+geometry, serialization, servo, feedback, candidate, contact-phase and deadline
+controls were observed failing before implementation; 47 focused external /
+framework checks and Ruff passed. The full framework suite was not rerun.
+`positioning_review_r6.json` records measured outcomes beside this decision;
+the scoped evidence archive contains plans, sources, probes, traces, logs and
+videos, without books, credentials or unrelated changes.
+
 ## Chassis collision boundary
 
 Pickup decorates the existing bench spec factory rather than modifying the
