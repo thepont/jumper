@@ -8,6 +8,52 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Teacher clearance repair — 2026-10-14
+
+The default left pickup teacher now uses measured arrival (10 samples within
+4 mm), checks IK residuals, holds its approach pose during closure, and requires
+three dual-contact samples before attempting lift. Phase timeouts reject the
+attempt. `TimedLeftPickupTeacher` preserves the historical controller explicitly;
+old policies and datasets have not been removed. This is a teacher-control repair,
+not an NN improvement or central-grasp qualification.
+
+Before issuing a pickup command, a private-state geometry adapter samples its
+arm/aperture segment at no more than 0.009 rad intervals and checks 779 explicit
+nonadjacent front-arm/robot collision pairs, independently of contact masks.
+The provisional 1 mm collision-hull margin is an experimental planning choice,
+not validated hardware clearance. Same-rigid and adjacent-body interfaces remain
+excluded and require a separate audit. Sampling is not continuous collision
+certification; collision hulls may conservatively reject real free space.
+Physics, collision masks and the existing task success criteria are unchanged.
+This guard covers pickup teacher commands, not learned actors or the subsequent
+placement carry controller. Collection propagates pickup rejection through the
+placement wrapper and stops before executing or accepting the rejected command.
+
+On the local Ryzen 3900X/native CPU fixture, the single seed-610018 integration
+probe stopped after 236 executed steps (4.72 simulated seconds): left finger
+grip insert versus right finger hull measured 0.531 mm in the proposed closure
+segment. The command was rejected, with zero accepted episodes. Evidence and
+pre-run source hashes are in
+`logs/jumper/jumper.pickup/guarded-teacher-integration-2026-10-14/`.
+The earlier externally guarded probe reproduced the same boundary. Neither
+probe achieved a qualified central grasp; no fitting or PPO was launched.
+
+The separate saved-pose CAD witness audit
+(`self-cad-witness-2026-10-14/report.json`) left all ten directional solid-side
+queries ambiguous because of mesh topology. Unsigned surface distances do not
+prove that the masked hull overlaps are real scrapes or false obstructions.
+Do not remove colliders or relax margins on that evidence. The next manipulation
+investigation must resolve the relative arm/support positioning at closure while
+retaining support and checking the full trajectory, before collecting new data.
+
+Validation: six framework clearance tests and six external teacher/collection
+controls passed; new controls were observed failing before their repairs.
+Together with adjacent framework checks, 60 checks passed (35 warnings, 5.90 s),
+and Ruff passed. The prior self-contact full-suite run recorded 1,293 passes,
+28 skips and the same 11 baseline failures; that is historical evidence, not a
+full-suite run of this teacher change. Controls are preserved beside the new
+integration report rather than added as task-specific framework tests.
+
 From the root repository's editable environment:
 
 ```bash

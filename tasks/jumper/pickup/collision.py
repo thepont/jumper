@@ -1,6 +1,7 @@
 """Pickup-only chassis contact; walking retains its original collision policy."""
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from itertools import combinations
 
 import mujoco
 from mjlab.utils.spec_config import CollisionCfg
@@ -11,6 +12,30 @@ from ..common.constants import CHASSIS_LINKS
 CHASSIS_GEOMS = tuple(f'{link}_meshcol' for link in CHASSIS_LINKS)
 CHASSIS_CONTACT_BIT = 1 << 7  # Ground and the six leg channels occupy bits 0..6.
 ARM_GEOMS = r'^(LF|RF)_(?!shoulder).*_meshcol'
+
+
+def nonadjacent_arm_pairs(model):
+    """Conservative planning scope, independent of contact masks.
+
+    Same rigid assemblies and directly adjacent bodies are excluded, not
+    certified clear. Joint-interface geometry needs a separate audit; this
+    scope must never be advertised as complete no-scrape verification.
+    """
+    geoms = [g for g in range(model.ngeom) if
+             (model.geom(g).name or '').startswith('robot/') and
+             '_meshcol' in model.geom(g).name]
+    pairs = []
+    for a, b in combinations(geoms, 2):
+        names = (model.geom(a).name, model.geom(b).name)
+        if not any(n.startswith(('robot/LF_', 'robot/RF_')) for n in names):
+            continue
+        ba, bb = (int(model.body_weldid[model.geom_bodyid[g]]) for g in (a, b))
+        if ba == bb or model.body_parentid[ba] == bb or model.body_parentid[bb] == ba:
+            continue
+        pairs.append(names)
+    if not pairs:
+        raise ValueError('pickup clearance requires named front-arm collision geometry')
+    return tuple(pairs)
 
 
 @dataclass(frozen=True)

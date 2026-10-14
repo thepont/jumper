@@ -83,6 +83,10 @@ class LeftPlacementTeacher:
         self.stage, self.entered = 'pickup', 0.
         self.reference = self.last_joints = self.withdraw = None
 
+    @property
+    def blocked_reason(self):
+        return self.pickup.blocked_reason
+
     def __call__(self, elapsed):
         evidence = self.term.evidence
         evidence.update()

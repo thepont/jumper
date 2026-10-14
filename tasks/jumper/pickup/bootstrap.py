@@ -89,25 +89,30 @@ def collect(env, teacher_factory, *, seeds, max_steps=500, settle_s=1., goal='pi
         teacher = teacher_factory(env)
         inputs, labels = [], []
         picked = False
+        executed_steps, blocked_reason = 0, None
         # Contact sensors lazily allocate buffers while stepping. no_grad keeps
         # those buffers writable by the next reset outside this context.
         with torch.no_grad():
             for step in range(max_steps):
                 elapsed = step * env.step_dt
                 action = bounded_action(teacher(elapsed))
+                blocked_reason = getattr(teacher, 'blocked_reason', None)
+                if blocked_reason is not None:
+                    break
                 # Snapshot BEFORE stepping. Clamp BEFORE env.step as previous raw
                 # actions are themselves observations, not merely servo commands.
                 if elapsed >= settle_s:
                     inputs.append(obs['actor'].clone().cpu())
                     labels.append(action.clone().cpu())
                 obs, _, terminated, truncated, _ = env.step(action)
+                executed_steps += 1
                 if bool((terminated | truncated).any()):
                     failed = any(bool(env.termination_manager.get_term(name)[0]) for name in
                                  ('fell_over', 'too_low', 'invalid_fixture', 'chassis_intrusion'))
                     picked = bool(env.termination_manager.get_term(goal)[0]) and not failed
                     break
-        report = {'seed': seed, goal: picked, 'seconds': (step + 1) * env.step_dt,
-                  'samples': len(inputs)}
+        report = {'seed': seed, goal: picked, 'seconds': executed_steps * env.step_dt,
+                  'samples': len(inputs), 'blocked_reason': blocked_reason}
         reports.append(report)
         if picked and inputs:
             episodes.append(DemoEpisode(seed, torch.cat(inputs), torch.cat(labels)))
@@ -115,7 +120,7 @@ def collect(env, teacher_factory, *, seeds, max_steps=500, settle_s=1., goal='pi
     return episodes, reports
 
 
-class LeftPickupTeacher:
+class TimedLeftPickupTeacher:
     """Previously checked near-reset sequence; privileged labels, not inputs.
 
     MuJoCo 3.11.0/native CPU, 2026-10-13: LF standard qualified at 4.92 s,
@@ -158,6 +163,100 @@ class LeftPickupTeacher:
             (target - self.term.targets[0, :4].cpu().numpy()) /
             (self.term.cfg.arm_speed * self.env.step_dt), device=self.env.device)
         action[:, 4] = -1. if elapsed < 2. else 1.
+        return bounded_action(action)
+
+
+class LeftPickupTeacher(TimedLeftPickupTeacher):
+    """Measured progression; the historical timed teacher remains available.
+
+    Arrival gates are teacher-local, not a central-grip or self-clearance proof.
+    Collection still requires the task's independently evaluated whole episode.
+    """
+
+    def __init__(self, env):
+        super().__init__(env)
+        from mjrl.clearance import GeometryClearance
+        from .collision import nonadjacent_arm_pairs
+        # Experimental simulator planning margin, not hardware clearance.
+        self.clearance = GeometryClearance(self.model, nonadjacent_arm_pairs(self.model),
+                                           margin_m=.001)
+        self.arm_qadr = self.model.jnt_qposadr[
+            [self.model.joint(f'robot/LF_J{i}_joint').id for i in range(5)]]
+        self.phase, self.entered, self.last_elapsed = 'settle', 0., -1.
+        self.arrival_samples, self.pinch_samples = 0, 0
+        self.closed, self.blocked_reason = False, None
+        self.approach = self.start.copy()
+
+    def __call__(self, elapsed):
+        from ..five_foot.tools.pickup_check import GRASP_OFFSET
+        if (not isinstance(elapsed, (int, float)) or not np.isfinite(elapsed) or
+                elapsed < 0 or elapsed <= self.last_elapsed):
+            raise ValueError('teacher clock must be finite, nonnegative and strictly increasing')
+        self.last_elapsed = elapsed
+        self.data.qpos[:] = self.env.sim.data.qpos[0].cpu().numpy()
+        ev = self.term.evidence
+        ev.update()
+        if self.phase == 'settle' and elapsed > 1.:
+            self.phase, self.entered = 'approach', elapsed
+        if self.phase == 'approach':
+            goal = (self.term.object_data('root_link_pos_w')[0].cpu().numpy() +
+                    GRASP_OFFSET * float(self.term.scales[self.term.object_index][0]))
+            fit = self.ik.solve(self.data.qpos, goal)
+            if not np.isfinite(fit.error_m) or fit.error_m > .004:
+                self.phase, self.blocked_reason = 'blocked', 'approach IK residual exceeds 4 mm'
+            else:
+                self.approach = fit.joints.copy()
+                arrived = np.linalg.norm(ev.grip_point()[0].cpu().numpy() - goal) <= .004
+                self.arrival_samples = self.arrival_samples + 1 if arrived else 0
+                if self.arrival_samples >= 10:
+                    self.phase, self.entered, self.closed = 'close', elapsed, True
+                elif elapsed - self.entered > 4.:
+                    self.phase, self.blocked_reason = 'blocked', 'measured arrival timeout'
+        elif self.phase == 'close':
+            self.pinch_samples = self.pinch_samples + 1 if bool(ev.pinched[0]) else 0
+            if self.pinch_samples >= 3:
+                goal = ev.grip_point()[0].cpu().numpy() + np.array([0., 0., .05])
+                fit = self.ik.solve(self.data.qpos, goal)
+                if not np.isfinite(fit.error_m) or fit.error_m > .004:
+                    self.phase, self.blocked_reason = 'blocked', 'lift IK residual exceeds 4 mm'
+                else:
+                    self.lift = fit.joints.copy()
+                    self.phase, self.entered = 'lift', elapsed
+            elif elapsed - self.entered > 2.:
+                self.phase, self.blocked_reason = 'blocked', 'dual contact timeout'
+        elif self.phase == 'lift' and elapsed - self.entered > 4.:
+            self.phase, self.blocked_reason = 'blocked', 'qualified lift timeout'
+        target = self.lift if self.phase == 'lift' else self.approach
+        if self.phase == 'blocked':
+            target = self.term.targets[0, :4].cpu().numpy()
+        action = torch.zeros(1, 5, device=self.env.device)
+        action[:, :4] = torch.as_tensor(
+            (target - self.term.targets[0, :4].cpu().numpy()) /
+            (self.term.cfg.arm_speed * self.env.step_dt), device=self.env.device)
+        action[:, 4] = 1. if self.closed else -1.
+        action = bounded_action(action)
+        if self.phase != 'blocked':
+            actual = self.data.qpos.copy()
+            target = actual.copy()
+            target[self.arm_qadr[:4]] = (self.term.targets[0, :4] + action[0, :4] *
+                self.term.cfg.arm_speed * self.env.step_dt).cpu().numpy()
+            target[self.arm_qadr[4]] = (self.term.cfg.closed_angle if self.closed
+                                       else self.term.cfg.open_angle)
+            count = max(1, int(np.ceil(np.abs(target[self.arm_qadr] -
+                                             actual[self.arm_qadr]).max() / .009)))
+            if count > 1024:
+                self.phase, self.blocked_reason = 'blocked', 'clearance query budget exceeded'
+            else:
+                for fraction in np.linspace(0., 1., count + 1):
+                    result = self.clearance.check(actual + fraction * (target - actual))
+                    if not result.passed:
+                        self.phase, self.blocked_reason = 'blocked', 'conservative self-clearance rejected'
+                        self.clearance_rejection = result
+                        break
+            if self.phase == 'blocked':
+                action[:, :4] = 0
+                action[:, 4] = (2 * (self.term.targets[0, 4] - self.term.cfg.open_angle) /
+                                (self.term.cfg.closed_angle - self.term.cfg.open_angle) - 1)
         return bounded_action(action)
 
 
