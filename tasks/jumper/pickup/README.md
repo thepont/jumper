@@ -67,6 +67,62 @@ copies, manifests, preflight records, reports, logs, final checkpoints and the
 first non-selected evaluation clip are retained. Incomplete runs are reported
 as incomplete, never replaced automatically.
 
+#### Completed result and interpretation limit
+
+Both training stages completed exactly 1,000 updates / 512,000 environment
+steps, and both separate evaluations completed all twelve scenarios. All four
+stage exits were zero with no wall timeout. The twelve paired seed/size/reset
+fingerprints agree. Final audit rechecked all 634 frozen source/asset hashes and
+three control hashes on each host, plus both final checkpoint hashes. There
+were no incomplete reports, excluded evaluation episodes or replacement runs.
+
+| Training episode limit / host | Training seconds | Env steps/s, training only | Pickups standard / small / large | Auxiliary central pickups | 60-second evaluation timeouts | Guard stops |
+| --- | ---: | ---: | --- | ---: | ---: | ---: |
+| 30 s / music-room | 2,517.815 | 203.35 | 0/8 / 0/2 / 0/2 | 0/12 | 12/12 | 0/12 |
+| 60 s / arch-gemini Docker | 1,095.816 | 467.23 | 0/8 / 0/2 / 0/2 | 0/12 | 12/12 | 0/12 |
+
+Both evaluators allowed the entire sixty seconds on every episode; none ended
+early for detected self-contact, explicit clearance failure, chassis intrusion,
+fall, too-low state or invalid fixture. This is absence of observed guard
+failures in these trials, not hardware safety proof. Maximum auxiliary loaded
+central score was exactly zero for both policies. Maximum whole-hull floor
+clearance was 1.231972 mm for 30-second training and 0.033857 mm for 60-second
+training, below the canonical >15 mm / eleven-frame pickup requirement.
+No qualified pickup occurred, so there is no observed pickup-time estimate.
+Zero auxiliary score does not distinguish every possible single-pad contact,
+grip geometry, load or exploration failure; it does not isolate a cause.
+
+The user's subsequent clarification is binding: equal environment steps are
+**not equal training attempts**. Completed training-attempt totals were not
+persisted as an exact count; rolling mean episode lengths cannot reconstruct
+them reliably. The proposed 30-second half-budget checkpoint comparison has
+**not been evaluated**. No extra snapshot was selected or new work launched to
+fill that gap. Therefore these results establish only that these two fixed
+final policies failed these trials. They do not establish that longer training
+episodes are worse, equivalent or sufficiently trained, nor answer performance
+at equal attempts. Comparing attempt-matched learning remains unresolved, along
+with single-seed and host/software confounds. No significance or equality claim
+is made, and the 60-second policy is not rejected because it had fewer attempts.
+
+Decision: preserve both candidates and all prior policies; promote neither.
+The fixed-compute protocol is closed without claiming the user's matched-attempt
+question is resolved. Both first-standard-scenario videos are retained, each
+1,501 frames / 60.04 seconds at 25 fps, rather than selected for a favourable
+outcome. Their late frames were inspected against the reports; Gemini's
+software-rendered clip has background line artefacts, not evidence of contact.
+Machine-readable audit is `horizon-pair-2026-10-15/final_review.json`; scoped
+reports, logs, controls, final checkpoint identities and checkpoints are archived
+beside the original evidence. The chat-hosted copies expire after fourteen days;
+the local/remote run directories remain the durable working copies.
+
+Final artifact checks and the five external orchestration controls passed. This
+documentation-only result adds no production change and makes no new full-suite
+claim. Final checkpoint SHA-256 values are
+`5630c053981bb418b902aaaa3799c4a2eca2ecc98bab211a7fc528c444ad3362`
+(30 seconds) and
+`18f8c7c82b3405e125c6881aee604399ab421b7e31668751392b6480a0cbbdc4`
+(60 seconds).
+
 ### Teacher clearance repair — 2026-10-14
 
 The default left pickup teacher now uses measured arrival (10 samples within
