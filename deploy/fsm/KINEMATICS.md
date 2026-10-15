@@ -1,5 +1,51 @@
 # Portable grasp-controller plan
 
+## Scene-bound motion proposals (2026-10-15)
+
+`joint_motion::SceneMotion` is an opt-in Decorator around `JointMotion`, not a
+second planner or servo. It binds one admitted joint path to a host scene
+revision and a positive observation-age budget (`std::time::Duration`). The
+existing geometry callback remains the Strategy for checking the whole
+measured-to-command corridor. Existing callers of `JointMotion` are unchanged.
+
+Behaviour contract:
+
+- Given a checked path, when the scene revision changes, no new command is
+  returned and the geometric checker is not called for the obsolete path.
+- Given an unchanged scene, stale/future timestamps, clock rollback or an older
+  observation stop the motion. Repeated fresh sensor packets are allowed because
+  sensor and control rates differ. The exact freshness boundary is inclusive.
+- Once rejected, returning to the old revision cannot resume the motion. Recovery
+  requires a newly checked path and a new motion instance, not clearing a flag.
+- With a fresh unchanged scene, existing synchronized joint rates, feedback gates,
+  geometric checks and latched failures retain their existing authority.
+
+The host owns revision assignment: advance it for relevant target/obstacle changes,
+use a new identity after a scene-source restart, and never reuse an old revision.
+All times must share one monotonic epoch. An observation stamp must represent
+coverage of the required scene, not merely a fresh target detection while obstacle
+data has expired. Unknown coverage must fail closed at the host boundary. Scene
+updates and dispatch must be serialized or rechecked immediately before dispatch;
+this borrowed snapshot does not prevent concurrent updates during a slow check.
+The host must implement the physical hold/braking response to a rejected proposal.
+
+Measured validation: three new behavioural tests failed against pass-through
+behaviour, then all four new tests and all 195 existing core tests passed (199
+total). Cases cover revision invalidation, stale/future data, ordering, exact age
+boundary, repeated packets, zero age budget, rate preservation and guard-stop
+latching. The 250ms budget used in tests is a test fixture, not a robot safety
+recommendation. *The Art of Unit Testing*, section 1.6, informed the small
+red/green steps; no book content or assets are included in the repository.
+
+This API is not yet wired to a perception stream, Python/WASM binding or hardware
+dispatch. It does not implement obstacle detection, target tracking, re-planning,
+braking-distance guarantees or successful pickup. Next integrate a scene producer
+and this same Rust authority into the simulation host, test changed-target,
+new-obstacle and occlusion events, then assess a library-backed local controller.
+Reuse the existing OpenRR `k` FK adapter and collision checker; do not build a new
+robot model or collision engine. Physics, safety margins and saved policies remain
+unchanged.
+
 ## First slice: non-actuating forward kinematics
 
 `kinematics::SerialArm` is an Adapter around pinned OpenRR `k` 0.32.0.
