@@ -114,8 +114,8 @@ clock, measured world position/rotation and capture time, independent scene
 coverage time/revision, contact and the clearance callback. It reuses the tracker's
 original-plan 8 mm/10 degree envelope. The older target/coverage timestamp is
 passed to Rust in integer nanoseconds; fresh target data cannot mask expired
-coverage. The host owns coverage validity and revision ordering. Missing/rejected
-observations and unexpected contact go through the Rust stop latch. This executor
+coverage. The host owns coverage validity and revision ordering. Expired/malformed
+observations, scene changes and unexpected contact go through the Rust stop latch. This executor
 is for pre-contact movement; closing and lifting require their own phase admission.
 
 Within the admitted envelope, Rust follows the existing joint waypoints and the
@@ -132,6 +132,34 @@ Combined with shared boundary/app-play checks: 62 passed, 38 existing warnings.
 One bounded known-bench replay then exercised 17 Rust commands from real delayed,
 noisy synthetic target packets before an estimated-motion rejection. See the
 pickup README and its preserved report for physical outcomes and limits.
+
+#### Bounded confirmation holds (2026-10-16)
+
+A same-seed sensor audit separated a 0.010 mm physical object displacement from
+an 11.095 mm estimated shift; frame reconstruction error stayed below 4.15e-8 m.
+The coordinator now reuses `PlanPoseGate` before committing a pose to the tracker.
+`ObjectTargetTracker.assess` previews position/goal/rotation errors against the
+original plan without updating or latching it. The same assessment owns the
+existing 8 mm/10 degree decision in normal tracker updates. `PlanPoseGate` accepts
+that boolean decision, retaining its quantified-position API for existing callers.
+
+A suspect or missing packet produces `ApproachCommand.holding=True` through
+Rust's `hold` operation, with the last confirmed capture timestamp. It never
+advances a waypoint, refreshes confirmation from rejected/duplicate data, or
+extends the motion budget. New acceptable data may continue an unexpired,
+unstopped motion after a fresh geometry check. Expiry, scene/geometry errors or
+contact still consume it. The host must check and dispatch held proposals through
+the same measured-to-target corridor as moving proposals. No smoothing, noise
+reduction, relaxed tolerance, or automatic replay of a stopped plan was added.
+
+Two saved-noise/lifetime regressions and three angle/goal/missing-packet cases
+were observed failing before their respective corrections. With legacy tracker,
+confirmation, sensor, extension and app checks, 140 Python cases passed (38
+existing warnings); all 200 Rust core tests and the host web-feature check passed.
+The final known-bench replay reached the approach endpoint after 100 proposals,
+15 of them checked holds. Saved-state position error was 5.479 mm against the
+5 mm closing gate, so this is approach completion with terminal correction still
+required. Closing, lifting and pickup were not executed.
 
 ## First slice: non-actuating forward kinematics
 

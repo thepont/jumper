@@ -1,5 +1,6 @@
 """Measured waypoint progression; clearance and pose alignment stay external."""
 import math
+from dataclasses import dataclass
 
 import numpy as np
 from mjrl.manipulation import joint_segment_step
@@ -15,6 +16,20 @@ def measured_grasp_alignment(position_error_m, axis_error_rad):
            for value in (position_error_m, axis_error_rad)):
         raise ValueError('alignment requires finite nonnegative position and angular errors')
     return position_error_m <= .005 and axis_error_rad <= math.radians(10.)
+
+
+@dataclass(frozen=True)
+class TargetMotion:
+    goal_world: np.ndarray
+    inward_world: np.ndarray
+    position_error_m: float
+    goal_error_m: float
+    rotation_error_rad: float
+
+    @property
+    def admitted(self):
+        return bool(self.position_error_m <= .008 and self.goal_error_m <= .008 and
+                    self.rotation_error_rad <= math.radians(10.) + 1e-12)
 
 
 class ObjectTargetTracker:
@@ -54,6 +69,15 @@ class ObjectTargetTracker:
         self.contact_latched = False
         self.replan_required = False
 
+    def assess(self, position_world, rotation_world):
+        """Preview the original-plan envelope without accepting or latching it."""
+        position, rotation = self._pose(position_world, rotation_world)
+        goal = position + rotation @ self.local_goal
+        angle = math.acos(np.clip((np.trace(rotation @ self.rotation.T)-1.)/2., -1., 1.))
+        return TargetMotion(goal, rotation @ self.local_axis,
+                            float(np.linalg.norm(position-self.origin)),
+                            float(np.linalg.norm(goal-self.initial_goal)), angle)
+
     def update(self, now, *, position_world=None, rotation_world=None,
                observed_at=None, contact=False):
         if (type(now) not in (int, float) or not math.isfinite(now) or now < 0 or
@@ -66,7 +90,7 @@ class ObjectTargetTracker:
                     type(observed_at) not in (int, float) or
                     not math.isfinite(observed_at) or not 0 <= observed_at <= now):
                 raise ValueError('tracking requires a complete, past-timestamped pose packet')
-            position, rotation = self._pose(position_world, rotation_world)
+            assessment = self.assess(position_world, rotation_world)
         self.last_time = now
         self.contact_latched |= contact
         if self.replan_required or observed_at is None or now-observed_at > .25:
@@ -74,17 +98,13 @@ class ObjectTargetTracker:
         if self.observed_at is not None and observed_at < self.observed_at:
             return None
         if self.observed_at is None or observed_at > self.observed_at:
-            angle = math.acos(np.clip((np.trace(rotation @ self.rotation.T)-1.)/2., -1., 1.))
-            goal = position + rotation @ self.local_goal
-            if (np.linalg.norm(position-self.origin) > .008 or
-                    np.linalg.norm(goal-self.initial_goal) > .008 or
-                    angle > math.radians(10.) + 1e-12):
+            if not assessment.admitted:
                 self.replan_required = True
                 return None
             self.observed_at = observed_at
             if not self.contact_latched:
-                self.goal = goal
-                self.axis = rotation @ self.local_axis
+                self.goal = assessment.goal_world
+                self.axis = assessment.inward_world
         return self.goal.copy(), self.axis.copy()
 
 
@@ -205,7 +225,11 @@ def refreshed_approach_target(ik, qpos, goal, inward, current_targets, endpoint,
 
 
 class PlanPoseGate:
-    """Hold on a suspect position packet; expire rather than moving blindly."""
+    """Confirm poses, holding suspect packets until accepted evidence expires.
+
+    Callers supply either legacy positional error or a complete pose-admission
+    verdict from their geometry authority. Neither can refresh a repeated packet.
+    """
     def __init__(self, *, recovery_samples=1):
         if type(recovery_samples) is not int or recovery_samples not in (1, 2):
             raise ValueError('pose recovery requires one or two fresh confirmations')
@@ -219,16 +243,20 @@ class PlanPoseGate:
             raise ValueError('pose clock must be finite and nonnegative')
         return self.confirmed is None or not 0 <= now-self.confirmed <= .25
 
-    def update(self, now, *, observed_at=None, error_m=None):
+    def update(self, now, *, observed_at=None, error_m=None, pose_admissible=None):
         self.expired(now)
         if observed_at is not None:
             if (type(observed_at) not in (int, float) or not math.isfinite(observed_at) or
-                    not 0 <= observed_at <= now or type(error_m) not in (int, float) or
-                    not math.isfinite(error_m) or error_m < 0):
+                    not 0 <= observed_at <= now):
                 raise ValueError('pose packet needs a finite past timestamp and nonnegative error')
+            if ((error_m is None) == (pose_admissible is None) or
+                    (error_m is not None and (type(error_m) not in (int, float) or
+                     not math.isfinite(error_m) or error_m < 0)) or
+                    (pose_admissible is not None and type(pose_admissible) is not bool)):
+                raise ValueError('supply either a nonnegative position error or explicit pose admission')
             if self.last_packet is None or observed_at > self.last_packet:
                 self.last_packet = observed_at
-                self.held = error_m > .008
+                self.held = error_m > .008 if pose_admissible is None else not pose_admissible
                 recovering = self.confirmed is not None and self.expired(now)
                 if recovering and self.recovery_samples > 1:
                     if self.held or now-observed_at > .25:
@@ -242,7 +270,7 @@ class PlanPoseGate:
                 if not self.held:
                     self.confirmed = observed_at
                     self.recovery_count, self.recovery_at = 0, None
-        elif error_m is not None:
+        elif error_m is not None or pose_admissible is not None:
             raise ValueError('pose error requires a packet timestamp')
         return not self.held and not self.expired(now)
 
