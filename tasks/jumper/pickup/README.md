@@ -3019,3 +3019,37 @@ with locomotion actions and rewards for retaining a grip while travelling, and
 finally sequence objects. Replace the synthetic frontend with measured camera
 detections before any real-robot claim. GPU throughput and hardware deployment
 have not been validated for this new task.
+
+### Bounded alternative IK routes — 2026-10-15
+
+The maths checker now accepts opt-in `assess(candidate, route_limit=3)`; the
+default remains one route. Existing ten-start waypoint fits retain their joint
+vectors. After a rejected legacy route, distinct fitted combinations are ordered
+by total joint travel and at most two alternatives pass through the same full
+approach/closure/lift checker. All checks share the existing 512-query budget.
+The first completely admitted route wins; predicates from different routes are
+never combined. This is a bounded local search, not clearance-margin optimization
+or a complete IK branch search. No safety thresholds or motion controls changed.
+
+The checker extraction was committed separately as a behaviour-preserving
+refactor (66 checks passed without changing tests). External BDD then reproduced
+the obstructed-shortest-route failure with an otherwise feasible alternative.
+After implementation, 78 relevant checks passed (38 warnings, 7.12 s on local
+native CPU), including 12 new route cases: alternate acceptance, rejection at
+each stage, budget exhaustion, valid-first-route retention and invalid limits.
+Ruff remains unavailable; no full-suite or lint pass is claimed.
+
+One bounded centre simulation (seed 970001, one native CPU world, 40 simulated
+seconds / 210 process seconds maximum, no retries or training) completed in
+31.12 s controller wall time. It stopped at 613 steps with no closure or pickup,
+the same 6.6044 mm point error and command-corridor rejection. Reset/final qpos
+matched the original case 00 and its trace was byte-identical. Candidate 1 was
+already nominally admitted, so it retained its original route. The shared query
+budget reached 512; no alternate complete route was evaluated or selected in
+this run. Consequently this is software-selection evidence, NOT physical
+improvement or a comparative test of alternate executed routes. Leave the option
+unpromoted. Remaining work includes execution-aware endpoint/corridor planning,
+budget allocation, trajectory timing and contact-aware closure qualification.
+
+Frozen driver, external BDD, source identities, report and video are preserved in
+`logs/jumper/jumper.pickup/alternative-routes-2026-10-15/`.

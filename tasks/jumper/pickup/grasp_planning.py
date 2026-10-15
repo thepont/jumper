@@ -7,11 +7,12 @@ Frozen-object closure and rigid-carriage lift are conservative screening models,
 not proof of dynamic seating or impossibility when no proposal survives.
 """
 import math
+from itertools import product
 
 import mujoco
 import numpy as np
 from mjrl.clearance import GeometryClearance
-from mjrl.manipulation import PointIK, plan_joint_path
+from mjrl.manipulation import IKResult, PointIK, plan_joint_path
 from scipy.spatial import ConvexHull
 from scipy.spatial.transform import Rotation
 
@@ -55,6 +56,7 @@ def fit_grasp_waypoint(ik, qpos, goal, inward, *, alternate_starts=True):
         fits.append(fit)
         records.append({'error_m': float(fit.error_m),
                         'axis_error_rad': float(fit.axis_error_rad),
+                        'joints': fit.joints.tolist(),
                         'admitted': bool(fit.error_m <= .004 and
                                          fit.axis_error_rad <= math.radians(10.))})
 
@@ -199,7 +201,16 @@ class NativeGraspChecks:
         return plan_joint_path(start, goal, self.ik.lower, self.ik.upper, valid,
                                max_samples=64, max_checks=512, resolution_rad=.025)
 
-    def assess(self, candidate):
+    def assess(self, candidate, *, route_limit=1):
+        """Optionally check up to three routes, sharing the original query budget.
+
+        The legacy route is first. Alternatives reuse the ten existing IK starts
+        at each waypoint; they are not a complete search of IK branches. Stop at
+        the first fully admitted route, never combining checks from different
+        routes. The default stays single-route until physical qualification.
+        """
+        if type(route_limit) is not int or not 1 <= route_limit <= 3:
+            raise ValueError('route limit must be an integer in [1, 3]')
         contact = self.base_position + self.base_rotation @ candidate.contact_b
         inward = self.base_rotation @ candidate.inward_b
         goals = grasp_waypoint_goals(contact, inward, self.standoff_m)
@@ -211,7 +222,47 @@ class NativeGraspChecks:
             fits.append(fit)
             attempts.append(records)
             seed[self.ik.qadr] = fit.joints
-        return self._assess_fits(goals, fits, attempts)
+        result = self._assess_fits(goals, fits, attempts)
+        if route_limit == 1 or result.admitted:
+            return result
+        baseline = self.details.pop()
+        reviewed = [dict(baseline, admitted=result.admitted)]
+        selected, selected_index = baseline, 0
+        pools = []
+        for fit, records in zip(fits, attempts, strict=True):
+            pool = [fit]
+            for record in records:
+                if not record['admitted']:
+                    continue
+                joints = np.asarray(record['joints'], dtype=float)
+                if any(np.max(abs(joints-item.joints)) <= 1e-5 for item in pool):
+                    continue
+                pool.append(IKResult(joints, record['error_m'], record['axis_error_rad']))
+            pools.append(pool)
+
+        def travel(route):
+            points = [self.qpos[self.ik.qadr], *(fit.joints for fit in route)]
+            return sum(float(np.linalg.norm(b-a)) for a, b in zip(points, points[1:]))
+
+        routes = list(product(*pools))[1:]  # First combination is the tested legacy route.
+        routes.sort(key=travel)
+        for route in routes[:route_limit-1]:
+            if self.queries >= self.max_queries:
+                break
+            records = [[dict(row, selected=bool(np.max(abs(
+                np.asarray(row['joints'])-fit.joints)) <= 1e-5)) for row in rows]
+                       for rows, fit in zip(attempts, route, strict=True)]
+            alternative = self._assess_fits(goals, route, records)
+            detail = self.details.pop()
+            reviewed.append(dict(detail, admitted=alternative.admitted))
+            if alternative.admitted:
+                result, selected = alternative, detail
+                selected_index = len(reviewed)-1
+                break
+        self.details.append(dict(selected, route_attempts=reviewed,
+                                 selected_route_index=selected_index,
+                                 route_limit=route_limit))
+        return result
 
     def _assess_fits(self, goals, fits, attempts):
         """Check one complete IK route with the existing shared query budget."""
