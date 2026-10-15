@@ -8,6 +8,59 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Terminal approach correction: tracking and clearance — 2026-10-15
+
+Local native CPU, one world, seed 970001, MuJoCo 3.11.0. A zero-physics
+saved-state FK audit decomposes the previous 5.969 mm miss: substituting the
+original endpoint joints at the final measured base gives 4.298 mm; a fresh
+single-start IK solve gives 3.836 mm. Original planning residual was 3.720 mm.
+Measured joints differ from the old endpoint by 0.00490–0.00939 rad. These are
+distinct counterfactual poses, not additive scalar error components. Live
+environment state was unchanged by the audit.
+
+Two isolated opt-in helpers extend `grasp_follow`, not the default learned
+controller. `refreshed_approach_target` solves at the measured base and retains
+4 mm / 10-degree fit limits, a 0.05 rad envelope around the original endpoint,
+and the existing 0.45 rad/s target rate. The envelope limits local departure;
+it does not independently prove collision clearance or branch topology.
+`tracking_trim` adds current-target minus measured-joint error without an
+integral, capped at 0.02 rad per joint, with joint bounds and the same rate cap.
+Both require external fresh-pose and command-corridor guards. The latter is
+experimental: its physical pilot was rejected, not promoted as a working grip.
+
+Bounded sequential pilots used identical initial-state hashes and unchanged
+physics, sensor noise, approach deadline and clearance thresholds:
+
+| Pilot | Steps | Final point error | Outcome |
+| --- | ---: | ---: | --- |
+| `math-grasp-approach-refresh-2026-10-15` | 1078 | 5.731 mm | Pose confirmation expired; no clearance rejection |
+| `math-grasp-approach-trim-2026-10-15` | 613 | 6.604 mm | Next command corridor rejected before execution |
+
+Refresh alone modestly reduces the prior 5.969 mm final error, but does not
+qualify arrival. Its maximum foot drift was 7.410 mm and wall time 64.68 s.
+The trim pilot stopped after 12.26 simulated seconds (35.18 s wall), maximum
+foot drift 6.472 mm. Its **proposed corridor**, not an executed collision,
+contained LF palm-piece/soap distances of 0.514 mm and -0.0135 mm, and front
+palm-pad/soap distance 0.0228 mm, all below the 1 mm non-insert guard. Its last
+recorded pre-step alignment differs from the final report because rejection
+occurs on the following observation before another physics step.
+
+Both report **no closure and no pickup**. Tracking compensation cannot be
+declared a successful fix: moving closer to the reference can violate whole-palm
+clearance. The next planning work must account for finite palm geometry and
+execution/estimate error, rather than extend the timeout or relax the guard.
+No general reachability, hardware safety or statistical improvement is claimed.
+Commanded/measured joints and pose-packet errors are now recorded in the external
+pilot traces; the global production telemetry interface is unchanged.
+
+TDD: both helper APIs were observed missing before implementation. **154 focused
+checks passed**, 35 warnings, 8.85 s; Ruff and whitespace checks passed. External
+controls cover fit rejection, bounded original-endpoint departure, target rate,
+constant-bias compensation, stalled-joint no-windup, limits and malformed input.
+No full-suite claim. Audit, controls and focused log are preserved under
+`math-grasp-terminal-review-2026-10-15/`; each pilot retains its frozen sources,
+plan, trace, report and video. Previous artifacts and policies remain unchanged.
+
 ### Checked open-claw approach and its remaining limits — 2026-10-15
 
 The adapter's previous 64-check per-segment cap could reject a clear long edge
