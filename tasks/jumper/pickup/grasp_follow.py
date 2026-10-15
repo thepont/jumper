@@ -5,6 +5,24 @@ import numpy as np
 from mjrl.manipulation import joint_segment_step
 
 
+def tracking_trim(desired, current_targets, measured, lower, upper, dt):
+    """Estimate steady servo lag without integrating it; caller checks clearance.
+
+    Opt-in terminal tracking only. Cap compensation at 0.02 rad per joint and
+    preserve the existing 0.45 rad/s command rate and supplied joint bounds.
+    Not a force controller: stale sensing or contact must be handled externally.
+    """
+    desired, current, actual, lo, hi = (
+        np.asarray(v, dtype=float) for v in (desired, current_targets, measured, lower, upper))
+    if (any(v.shape != (4,) or not np.isfinite(v).all()
+            for v in (desired, current, actual, lo, hi)) or not (hi > lo).all() or
+            ((current < lo) | (current > hi) | (desired < lo) | (desired > hi)).any() or
+            type(dt) not in (int, float) or not math.isfinite(dt) or not 0 < dt <= .02):
+        raise ValueError('trim requires bounded finite four-joint targets and dt in (0, .02]')
+    compensated = np.clip(desired + np.clip(current-actual, -.02, .02), lo, hi)
+    return joint_segment_step(current, compensated, max_delta=.45*dt)
+
+
 def refreshed_approach_target(ik, qpos, goal, inward, current_targets, endpoint, dt):
     """Locally refit the terminal pose at the measured base, never switch branches.
 
