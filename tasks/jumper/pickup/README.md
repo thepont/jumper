@@ -824,6 +824,30 @@ claim. Final checkpoint SHA-256 values are
 (30 seconds) and
 `18f8c7c82b3405e125c6881aee604399ab421b7e31668751392b6480a0cbbdc4`
 (60 seconds).
+### Preparation branch recovery — 2026-10-15
+
+On music-room/native CPU, the unchanged preparation replay reproduced the
+59-step IK rejection. The current-state seed missed by 9.912 mm / 14.44 degrees;
+seven of the existing ten deterministic grasp-waypoint starts instead met the
+unchanged 4 mm / 10 degree admission limits (about 2.092 mm / 5.61 degrees).
+Preparation now reuses that existing multi-start authority before checking the
+selected branch's complete corridor. This is not an IK impossibility result or
+a clearance exemption, and does not search every branch for a collision-free one.
+
+The same-seed physical replay then completed arm preparation at 4.92 simulated
+seconds and a 30.371 mm forward support shift, with maximum measured foot drift
+4.586 mm and no guard rejection. It stopped after 615 steps because no complete
+grasp approach was admitted; closure, lift and pickup remained false. One grasp
+candidate passed closure/lift screening but its open-claw approach endpoint had
+a -0.210 mm fixed-insert/object distance, violating the unchanged +1 mm margin.
+This is a rejected proposed pose, not an executed collision.
+
+Two external branch/obstruction regressions were observed red before the repair.
+Together with existing preparation, branch, shared manipulation and clearance
+checks, 57 passed (35 existing Torch warnings). Evidence and frozen sources are
+in `logs/jumper/jumper.pickup/grasp-completion-{baseline,multistart}-2026-10-15/`;
+task-local regression probes are archived beside the latter. No full-suite,
+hardware, central-grasp, or Rust end-to-end grasp claim is made.
 
 ### Action-boundary trace — 2026-10-15
 

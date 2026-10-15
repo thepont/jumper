@@ -74,11 +74,14 @@ def fit_grasp_waypoint(ik, qpos, goal, inward, *, alternate_starts=True):
 
 
 def plan_arm_preparation(ik, qpos, goal, inward, clear):
-    """One bounded open-arm preparation via existing IK/path authorities.
+    """Bounded open-arm preparation via existing multi-start IK/path authorities.
 
     The callback must check complete poses, including insert/object clearance.
     No live state is written. Caller must verify measured arrival, support and
     each actual command corridor before starting any body repositioning.
+    Reuse the same ten starts as grasp waypoints: one local failure does not
+    establish that the preparation target is unreachable. The selected fit
+    still needs its own checked corridor; no branch is admitted by IK alone.
     """
     pose = np.asarray(qpos, dtype=float).copy()
     goal, inward = np.asarray(goal, dtype=float), np.asarray(inward, dtype=float)
@@ -91,7 +94,7 @@ def plan_arm_preparation(ik, qpos, goal, inward, clear):
             len(set(addresses)) != 4 or (addresses < 0).any() or
             (addresses >= len(pose)).any()):
         raise ValueError('preparation requires finite pose/goal, unit axis and four joint addresses')
-    fit = ik.solve(pose.copy(), goal, axis_target=inward)
+    fit, _ = fit_grasp_waypoint(ik, pose, goal, inward)
     if (not math.isfinite(fit.error_m) or not 0 <= fit.error_m <= .004 or
             fit.axis_error_rad is None or not math.isfinite(fit.axis_error_rad) or
             not 0 <= fit.axis_error_rad <= math.radians(10.)):
