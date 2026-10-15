@@ -8,6 +8,11 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+The proposed reusable balance/payload controller, its separation from pickup,
+future TDD/BDD checks and research references are in the
+[balance and payload control proposal](../../../docs/BALANCE_CONTROL_PROPOSAL.md).
+This is a design reference, not an implemented balance capability.
+
 ### Pickup capture handoff audit — 2026-10-16
 
 Scope is pickup and secure hold only, not release, put-down or tray placement.
