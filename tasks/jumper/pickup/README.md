@@ -879,6 +879,74 @@ Evidence: `grasp-completion-standoff-2026-10-15`,
 `grasp-tracking-observe-2026-10-15`, and `grasp-replan-trial-2026-10-15`
 under `logs/jumper/jumper.pickup/`, including external driver/control copies.
 
+### Noise diagnosis and checked pose holds — 2026-10-16
+
+A same-seed capture/delivery audit reproduced the 633-step stop. Between the
+reference capture at 12.2 s and the rejected capture at 12.6 s, the actual object
+shifted **0.0102 mm**, while its noisy estimated position shifted **11.095 mm**.
+Maximum reconstruction error between the sensor's captured world estimate and
+the consumer's world transform was **4.143e-8 m**. The difference between capture
+noise vectors accounts for the false movement; this run does not implicate the
+coordinate transform or demonstrate significant physical object motion.
+
+The coordinator now reuses `PlanPoseGate` before accepting a pose into
+`ObjectTargetTracker`. A non-mutating tracker assessment owns the original
+position/goal/rotation criteria; the confirmation gate consumes its boolean
+verdict. Suspect or missing observations request a checked Rust target hold,
+stamped with the last confirmed capture time. They cannot advance a waypoint,
+refresh confirmation or extend the motion timeout. An acceptable fresh packet
+can continue an unexpired, unstopped motion after another complete geometry check.
+Expiry, scene changes, contact and geometry errors still latch stop. This retains
+the 8 mm/10 degree envelope, the 1 mm clearance limits and normal servo bounds.
+
+The position-only intermediate replay got past the original stop but exposed the
+same issue in rotation: the object stayed stationary while the measured rotation
+changed by about 10.771 degrees. The complete-pose correction therefore covers
+position, rotated goal displacement and angular error through one assessment.
+No packet is filtered toward a hidden true pose, and simulator truth remains
+read-only diagnostic/guard information rather than a target input.
+
+All below are the same seed 970001 on music-room/native CPU, one known fixed
+bench with synthetic sensing; none is independent confirmation or a trained-policy
+comparison. Every intermediate result is preserved.
+
+| Replay | Executed steps | Rust proposals (holds) | Outcome |
+| --- | ---: | ---: | --- |
+| Original observed approach | 633 | 17 (0) | Position outlier stopped approach |
+| Position confirmation only | 688 | 72 (5) | Angular outlier stopped approach |
+| Complete pose confirmation | 715 | 100 (15) | Measured approach waypoint arrival |
+
+The final replay took 36.10 wall seconds, with a 30.388 mm forward shift and
+maximum recorded foot drift **5.451 mm**. Runtime checks rejected no clearance
+pairs. All 15 dispatched holds had exactly zero target increment. Bounds remained
+40 simulated/180 wall seconds, no automatic replan or retry. The 14.32-second video
+shows preparation and open-claw approach; closure, lift and canonical pickup
+remain **false**. A separate private saved-state check found **5.479 mm** contact
+reference error to the current estimated goal, exceeding the unchanged **5 mm**
+closing position gate. That probe did not check angular alignment. Decision:
+keep closing blocked and apply the existing checked terminal IK/tracking
+correction before testing stable alignment and phase transition.
+
+TDD evidence: five shared hold cases failed first because the API was absent;
+two saved-noise/lifetime cases then failed against immediate rejection; three
+angular/goal/missing-reading cases failed against the position-only correction.
+After correction, **140 Python tests passed** (38 existing warnings), covering
+shared bindings/app replay and existing tracker/confirmation/sensor contracts;
+**200 Rust core tests** and the host web-feature check passed. No full-suite,
+WASM execution, clean-lint or hardware claim is made. Ruff is unavailable and
+the previously recorded Clippy blocker remains outside this change.
+
+Evidence lives in `logs/jumper/jumper.pickup/observed-tracking-audit-2026-10-16`,
+`observed-pose-hold-2026-10-16` and `observed-full-pose-hold-2026-10-16`, including
+plans, reports, capture/delivery records, traces, frozen sources, external checks
+and videos. Reset fingerprints match across the three runs and all frozen source
+copies match their recorded plan hashes. Later source changes only update
+docstrings. Download the
+[evidence ZIP](https://files.esson.au/f/jumper-pose-hold-evidence-c7aabc69.zip) and
+[approach-arrival video](https://files.esson.au/f/jumper-pose-hold-approach-arrival-38a9f2b8.mp4);
+hosted copies expire after 14 days. Unknown-obstacle sensing, stopping distance,
+other layouts and hardware still need their own evidence.
+
 ### Observations connected to Rust approach — 2026-10-16
 
 `ObservedApproach` now coordinates the existing `ObjectTargetTracker`, an admitted
