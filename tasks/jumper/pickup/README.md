@@ -8,6 +8,42 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Finger-only check at the stopped poses — 2026-10-15
+
+The user's observation that closing might be the missing step was tested in
+private native geometry on `music-room`. Two preserved final `qpos` states were
+checked: baseline matrix case 00 and the unsuccessful 0.03 m IK-weight case 00.
+Only the LF finger angle changed; arm, base and object stayed frozen. Up to 129
+apertures were checked, stopping at the first unchanged 1 mm clearance or 2 mm
+insert-depth rejection. Zero physics steps; live state was unchanged. This is
+not a force/contact-load, seating, centrality or physical pickup test.
+
+R2 excludes ambiguous raw zero mesh distances from proximity admission. R1
+had counted them as proximity and is preserved, not used for that conclusion.
+Existing clearance machinery already handles this ambiguity conservatively;
+the planner's separate raw insert-distance proximity test lacks that safeguard.
+The three selected baseline-matrix closure witnesses all have nonzero distances,
+so this audit does not attribute those approach failures to that defect.
+
+Baseline: 73 samples through first obstruction; seven nonzero-distance samples
+at jaw angles -0.672962 through -0.599347 rad satisfy both-pad proximity and all
+sampled guards. Fixed-pad gap is 0.816 mm; moving-pad distance ranges from
+1.697 to -1.986 mm. The next sample exceeds allowed insert depth. Latest
+IK-weight case: 67 samples; fixed-pad gap stays 3.422 mm, and no sample admits
+two-pad proximity before moving-insert depth rejection. No robot/noninsert-object
+guard failed in either sampled sweep. Five and four raw-zero samples respectively
+were excluded; the baseline result does not depend on them.
+
+Decision: the earlier categorical implication that target misalignment prevents
+useful closure was too strong. The older stopped pose admits a frozen geometric
+closure window; the latest one does not. Neither proves safe dynamic gripping.
+Do not disable alignment or extend closing through obstruction. A contact-aware
+closure investigation must first pin ambiguous-distance rejection with BDD and
+then qualify real motion, loaded grip and canonical lift separately. Current
+production controller and guards remain unchanged. The 11 shared clearance
+tests passed (0.38 s); no full-suite or physical-success claim. Evidence:
+`stopped-closure-review-2026-10-15-r2/`, with R1 preserved alongside it.
+
 ### Whole-plan IK weighting trial — 2026-10-15
 
 On `music-room`, a private saved-state review reduced grasp-point IK error from
