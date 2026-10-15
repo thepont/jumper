@@ -8,6 +8,67 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Physical support-leg preparation for maths grasping — 2026-10-15
+
+`grasp_reposition.SupportShift` is a task-owned State gate for one bounded
+30 mm world-X preparation at 5 mm/s. It waits for five measured ground-contact
+feet and body tilt <=3 degrees for ten samples spanning at least 180 ms after
+initial settling. It then emits base references; it does not write live poses.
+The external native adapter reuses `PointIK` at the measured foot anchors and
+`joint_segment_step` at 0.45 rad/s, applies support-leg servo targets, and checks
+the planned pose and the measured-to-commanded joint corridor. The LF claw stays
+open. No NN policy or physics parameters change.
+
+Movement rejects fewer than four ground-contact feet, >8 mm foot drift,
+>3-degree tilt, clearance rejection, measurement gaps >40 ms, support IK error
+>2 mm or a 12-second movement timeout. Arrival requires measured base position
+within 3 mm of the goal for ten samples/180 ms after the six-second reference
+ramp. Ground-contact membership reuses the existing teacher's nonpositive-gap
+contact query; it is not a calibrated load sensor or a support-polygon/COM
+stability certificate. Collision coverage retains the existing nonadjacent
+front-arm/robot pairs plus LF/floor and non-insert/object pairs at 1 mm.
+Adjacent rigid interfaces and rear-only self pairs are not certified.
+The simulator safety observer uses exact simulated geometry; the subsequent
+grasp planner uses a fresh noisy/delayed pose and size estimate.
+
+The first pilot stopped at step 5 on transient initial settling tilt, before
+repositioning commands. A regression was observed red, then the gate was fixed
+to wait for acceptable settling tilt rather than prematurely applying a movement
+failure. Movement tilt limits and collision guards were not loosened. That pilot
+and its source remain preserved.
+
+**Measured local native CPU result, seed 970001:** the corrected pilot completed
+368 control steps (1,472 physics substeps; 7.36 simulated seconds), advancing **30.578 mm** in X,
+-0.519 mm in Y and -1.443 mm in Z relative to the settled start. Maximum recorded
+foot drift was **4.841 mm**. No actual/planned/command-corridor clearance rejection
+occurred during preparation. The first corrected run took 19.78 seconds wall time
+including video and final planning. These are one-fixture observations, not
+hardware safety or general robustness evidence.
+
+After preparation, 11/18 approach points, 11/18 grasp points and 5/18 lift points
+passed IK; **two complete three-waypoint proposals passed IK**. The smallest
+maximum position residual was 3.5525 mm. Neither passed the full planning gate:
+both initial approach searches exhausted their bounded search, one later lift
+endpoint was invalid. Both frozen closure screens passed; one sampled
+rigid-carriage lift corridor passed. These are geometric checks, not contact
+load or physical grip evidence. Rejected queries included finger-body/object
+separation 0.301 mm and base/upper-arm overlap 0.375 mm. **No arm approach, closure
+or pickup was executed.** The previous fixed-stance 0/18 result used an earlier
+sensor packet; this is a development observation, not an isolated causal or
+statistical improvement claim.
+
+The r3 replay adds full final qpos/qvel to preserve the exact fixture for the next
+approach-path investigation. It is a replay of the same trial, not an independent
+success. Evidence, videos, frozen external adapter and BDD controls are in
+`logs/jumper/jumper.pickup/math-grasp-reposition{,-r2,-r3}-2026-10-15/`.
+Fourteen new BDD cases cover ramp/arrival, timeout, support/drift/tilt/clearance
+failure, missing measurements and malformed input, including the settling
+regression. All 114 focused checks passed (35 warnings, 6.75 seconds); Ruff
+passed for the gate and E4/E7/E9/F for the external adapter/controls. No full-suite
+claim is made. The r2/r3 command traces match byte-for-byte.
+The native actuation adapter remains experimental outside the task
+library; the gate alone is not an autonomous pickup controller.
+
 ### Bounded alternate IK starts — 2026-10-15
 
 The next maths-advisor slice uses the existing `PointIK` authority with ten
