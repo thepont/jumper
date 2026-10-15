@@ -8,6 +8,81 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Pickup capture handoff audit — 2026-10-16
+
+Scope is pickup and secure hold only, not release, put-down or tray placement.
+Use a physically verified pickup as the milestone, with grip/load-distribution
+quality reported separately. Geometric centrality is not centre-of-mass sensing.
+Hardware load feedback and disturbance response remain unverified. The six
+preserved simulations below retain their frozen auxiliary loaded-score >=0.9
+capture gate; all recorded zero score, so changing it would not supply the
+missing contacts. No learning, hardware actuation or moving fixture ran.
+
+Measured on music-room, one native CPU world/thread, seed 970001, synthetic
+10 Hz detections with 60 ms delay, 2 mm position and 2-degree orientation noise,
+5% dropout. Each attempt was bounded to 40 simulated seconds and 180 internal
+wall seconds, excluding environment startup/cleanup. All six reset-state hashes
+match. `complete=true` means the experiment finished, not pickup success.
+
+| Preserved `rust-capture-*-2026-10-16` run | Steps | Result |
+| --- | ---: | --- |
+| static | 1353 | Full future-grasp admission starved tracking; support-drift stop. |
+| staged | 1365 | Current arm routes independent of future grasp; tracking deadline. |
+| contact-stage | 1169 | Closing began at 23.36 s; ambiguous raw pad-distance zero stopped it. |
+| depth | 1195 | Expected-contact depth witness guard; closing began at 23.36 s, then closure permission lost. |
+| position-first | 1323 | Opt-in constrained IK improved some planned residuals; actual 0.9943 mm approach gap failed the unchanged 1 mm guard. |
+| continuity | 760 | Replanning anchor repaired; closing began at 14.66 s, then closure permission lost. |
+
+**Zero pickups and zero lifts in all six.** Maximum auxiliary loaded score was
+zero and maximum whole-hull floor clearance approximately 2 mm, below the
+canonical 15 mm requirement. `closure_executed` records a requested increment,
+not proof of contact or finger travel. The cutoff-sensitive zero in contact-stage
+does not prove penetration or its internal numerical cause; the nominal/live
+model comparison also did not establish a CAD defect.
+
+Independent reviewers converged on a demonstrated execution handoff defect:
+`NativeTrackingPlanner` anchored every new route at lagged measured joints, while
+Rust `JointMotion` advances from requested targets. A real-extension regression
+with command 0.030 rad, measurement 0.015 rad and forward goal 0.100 rad emitted
+0.021 rad before repair instead of continuing to 0.039 rad at the unchanged
+0.45 rad/s, 20 ms rate. Routes now start at requested targets; measured feedback,
+measured-to-proposed geometry checks and stale/infeasible-route invalidation
+remain mandatory. Nine external controls cover continuity, genuine reversal,
+excessive lag, stale sensing, blocked commands and the staged planner contract.
+The failing baseline had two failed assertions and four passing controls.
+
+The single continuity replay used the depth configuration, not the opt-in SLSQP
+mode. It finished after 15.20 simulated / 53.717 internal wall seconds, with final
+alignment 1.278 mm / 1.675 degrees, maximum foot drift 5.787 mm and no recorded
+runtime rejected geometry pair. Its last arm route was rejected as an invalid
+endpoint, so closing permission remained false despite measured alignment.
+Earlier entry into closing is descriptive, not verified pickup improvement.
+
+Observation-only dispatch instrumentation confirmed another integration issue:
+among 144 approach/closing ticks, 15 proposed arm increments differed from
+accepted targets by 0.009 rad. In every such tick the supervisor had a usable
+pose and the action term's independent detector did not. Their object-validity
+decisions disagreed on 25 ticks overall. Maximum measured jaw travel from the
+nominal open angle was only 0.009884 rad. This witnesses the active dispatch
+gate, not merely physical servo lag. Share one perception authority in a
+separate tested repair, retaining expiry checks and the squeeze limiter; then
+separate current closure occupancy from hypothetical future lift admission.
+Do not continue stale routes, increase margins/time budgets or add target grids
+to hide this result. The current host exits at its pickup event and therefore
+does not yet qualify a subsequent secure-hold window.
+
+The Rust capture State machine and Python Adapter are opt-in, not a deployed
+grasp controller. Position-first SciPy SLSQP remains opt-in within the existing
+axis cone and joint bounds; weighted least squares is unchanged by default.
+It is a numerical option, not a demonstrated pickup repair. Validation: **227
+Rust core tests** and **109 focused Python/extension/app-play/external checks**
+passed (38 existing warnings); nine external planner controls also passed alone.
+No full-framework, hardware, catch, WASM-target or lint pass is claimed. Earlier
+Clippy `control.rs` failure and unavailable Ruff are not cleared by these checks.
+Frozen plans, source identities, traces, dispatch audit, reports and videos are
+under `logs/jumper/jumper.pickup/rust-capture-*-2026-10-16`; failed runs remain
+preserved. API details are in `deploy/fsm/KINEMATICS.md`.
+
 ### Rust moving-target recovery contract — 2026-10-16
 
 The new opt-in `tracking::Tracking<P>` supervisor keeps requesting freshly
