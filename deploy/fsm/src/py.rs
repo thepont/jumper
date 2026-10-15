@@ -756,6 +756,33 @@ impl PySceneMotion {
         now_ns: &Bound<'_, PyAny>,
         guard: PyObject,
     ) -> PyResult<Vec<f64>> {
+        self.propose((current, measured, dt), scene, now_ns, guard, false)
+    }
+
+    /// Validate a held target through the same scene/geometry/timeout authority.
+    fn hold(
+        &mut self,
+        current: &Bound<'_, PyAny>,
+        measured: &Bound<'_, PyAny>,
+        dt: &Bound<'_, PyAny>,
+        scene: &Bound<'_, PyAny>,
+        now_ns: &Bound<'_, PyAny>,
+        guard: PyObject,
+    ) -> PyResult<Vec<f64>> {
+        self.propose((current, measured, dt), scene, now_ns, guard, true)
+    }
+}
+
+impl PySceneMotion {
+    fn propose(
+        &mut self,
+        feedback: (&Bound<'_, PyAny>, &Bound<'_, PyAny>, &Bound<'_, PyAny>),
+        scene: &Bound<'_, PyAny>,
+        now_ns: &Bound<'_, PyAny>,
+        guard: PyObject,
+        holding: bool,
+    ) -> PyResult<Vec<f64>> {
+        let (current, measured, dt) = feedback;
         let mut motion = self.0.take().ok_or_else(|| err("motion stopped"))?;
         let py = current.py();
         let packet = scene.downcast::<pyo3::types::PyTuple>()?;
@@ -766,24 +793,29 @@ impl PySceneMotion {
             revision: scene_integer(&packet.get_item(0)?)?,
             observed_at: std::time::Duration::from_nanos(scene_integer(&packet.get_item(1)?)?),
         };
-        let next = motion
-            .step(
-                &current.extract::<Vec<f64>>()?,
-                &measured.extract::<Vec<f64>>()?,
-                dt.extract::<f64>()?,
-                std::time::Duration::from_nanos(scene_integer(now_ns)?),
-                stamp,
-                |candidate| {
-                    let result = guard
-                        .call1(py, (candidate.to_vec(),))
-                        .map_err(|e| e.to_string())?;
-                    if !result.bind(py).is_instance_of::<pyo3::types::PyBool>() {
-                        return Err("motion guard must return a boolean".into());
-                    }
-                    result.extract::<bool>(py).map_err(|e| e.to_string())
-                },
-            )
-            .map_err(err)?;
+        let operation = if holding {
+            crate::joint_motion::SceneMotion::hold
+        } else {
+            crate::joint_motion::SceneMotion::step
+        };
+        let next = operation(
+            &mut motion,
+            &current.extract::<Vec<f64>>()?,
+            &measured.extract::<Vec<f64>>()?,
+            dt.extract::<f64>()?,
+            std::time::Duration::from_nanos(scene_integer(now_ns)?),
+            stamp,
+            |candidate: &[f64]| {
+                let result = guard
+                    .call1(py, (candidate.to_vec(),))
+                    .map_err(|e| e.to_string())?;
+                if !result.bind(py).is_instance_of::<pyo3::types::PyBool>() {
+                    return Err("motion guard must return a boolean".into());
+                }
+                result.extract::<bool>(py).map_err(|e| e.to_string())
+            },
+        )
+        .map_err(err)?;
         self.0 = Some(motion);
         Ok(next)
     }

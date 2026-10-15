@@ -2,6 +2,18 @@
 
 use std::time::Duration;
 
+#[derive(Clone, Copy, PartialEq)]
+enum Progress {
+    Advance,
+    Hold,
+}
+
+struct Feedback<'a> {
+    current: &'a [f64],
+    measured: &'a [f64],
+    dt: f64,
+}
+
 /// Host scene identity and observation time, in the host's monotonic clock domain.
 /// A revision changes whenever geometry relevant to the admitted plan changes.
 #[derive(Clone, Copy)]
@@ -40,12 +52,56 @@ impl SceneMotion {
         dt: f64,
         now: Duration,
         scene: SceneStamp,
+        clear: impl FnMut(&[f64]) -> Result<bool, String>,
+    ) -> Result<Vec<f64>, String> {
+        self.propose(
+            Feedback {
+                current,
+                measured,
+                dt,
+            },
+            now,
+            scene,
+            Progress::Advance,
+            clear,
+        )
+    }
+
+    /// Check the existing target without advancing any waypoint. Time still runs.
+    pub fn hold(
+        &mut self,
+        current: &[f64],
+        measured: &[f64],
+        dt: f64,
+        now: Duration,
+        scene: SceneStamp,
+        clear: impl FnMut(&[f64]) -> Result<bool, String>,
+    ) -> Result<Vec<f64>, String> {
+        self.propose(
+            Feedback {
+                current,
+                measured,
+                dt,
+            },
+            now,
+            scene,
+            Progress::Hold,
+            clear,
+        )
+    }
+
+    fn propose(
+        &mut self,
+        feedback: Feedback<'_>,
+        now: Duration,
+        scene: SceneStamp,
+        progress: Progress,
         mut clear: impl FnMut(&[f64]) -> Result<bool, String>,
     ) -> Result<Vec<f64>, String> {
         // Run inside JointMotion's guard so every scene failure uses its Stop
         // latch, including an already-arrived motion. Never fall back to a path
         // checked against another scene.
-        self.motion.step(current, measured, dt, |candidate| {
+        self.motion.propose(feedback, progress, |candidate| {
             if scene.revision != self.revision
                 || now
                     .checked_sub(scene.observed_at)
@@ -138,8 +194,30 @@ impl JointMotion {
         current: &[f64],
         measured: &[f64],
         dt: f64,
+        clear: impl FnMut(&[f64]) -> Result<bool, String>,
+    ) -> Result<Vec<f64>, String> {
+        self.propose(
+            Feedback {
+                current,
+                measured,
+                dt,
+            },
+            Progress::Advance,
+            clear,
+        )
+    }
+
+    fn propose(
+        &mut self,
+        feedback: Feedback<'_>,
+        progress: Progress,
         mut clear: impl FnMut(&[f64]) -> Result<bool, String>,
     ) -> Result<Vec<f64>, String> {
+        let Feedback {
+            current,
+            measured,
+            dt,
+        } = feedback;
         if self.state == State::Stopped {
             return Err("motion stopped".into());
         }
@@ -162,11 +240,18 @@ impl JointMotion {
                 .zip(target)
                 .all(|((c, m), t)| (c - t).abs() <= 1e-6 && (m - t).abs() <= 0.02)
         };
-        if reached(&self.points[index]) && index + 1 < self.points.len() {
+        if progress == Progress::Advance
+            && reached(&self.points[index])
+            && index + 1 < self.points.len()
+        {
             index += 1;
         }
-        let target = &self.points[index];
-        let arrived = index + 1 == self.points.len() && reached(target);
+        let target: &[f64] = match progress {
+            Progress::Advance => &self.points[index],
+            Progress::Hold => current,
+        };
+        let arrived =
+            progress == Progress::Advance && index + 1 == self.points.len() && reached(target);
         let extent = current
             .iter()
             .zip(target)
@@ -207,6 +292,38 @@ mod tests {
     }
     fn scene_motion() -> SceneMotion {
         SceneMotion::new(motion(vec![vec![1., 0.5]]), 7, Duration::from_millis(250)).unwrap()
+    }
+    #[test]
+    fn scene_hold_does_not_advance_a_reached_waypoint() {
+        let mut m = SceneMotion::new(
+            motion(vec![vec![0.1, 0.], vec![0.2, 0.2]]),
+            7,
+            Duration::from_millis(250),
+        )
+        .unwrap();
+        let held = m
+            .hold(
+                &[0.1, 0.],
+                &[0.1, 0.],
+                0.02,
+                Duration::from_millis(20),
+                stamp(7, 0),
+                |_| Ok(true),
+            )
+            .unwrap();
+        assert_eq!(held, vec![0.1, 0.]);
+        assert!(!m.arrived());
+        let next = m
+            .step(
+                &[0.09, 0.],
+                &[0.1, 0.],
+                0.02,
+                Duration::from_millis(40),
+                stamp(7, 0),
+                |_| Ok(true),
+            )
+            .unwrap();
+        assert_eq!(next[1], 0.);
     }
     fn stamp(revision: u64, ms: u64) -> SceneStamp {
         SceneStamp {

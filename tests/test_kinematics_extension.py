@@ -154,6 +154,34 @@ def test_malformed_joint_packet_latches_scene_binding_stop(extension):
         motion.step([0., 0.], [0., 0.], .02, (7, 120), 120, lambda _: True)
 
 
+def test_scene_hold_checks_current_target_without_advancing_and_consumes_budget(extension):
+    motion = extension.SceneMotion([[.2]], [-1.], [1.], .45, .04, 7, 250_000_000)
+    seen = []
+    held = motion.hold([0.], [.01], .02, (7, 0), 20_000_000,
+                       lambda candidate: seen.append(candidate) or True)
+    assert held == [0.]
+    assert seen == [[0.]]
+    assert not motion.arrived
+    assert motion.step([0.], [.01], .02, (7, 0), 40_000_000,
+                       lambda _: True) == pytest.approx([.009])
+    with pytest.raises(ValueError):
+        motion.hold([.009], [.01], .02, (7, 0), 60_000_000, lambda _: True)
+    with pytest.raises(ValueError):
+        motion.step([.009], [.01], .02, (7, 0), 80_000_000, lambda _: True)
+
+
+@pytest.mark.parametrize("packet,clock,guard", [
+    ((8, 0), 20_000_000, True), ((7, 0), 250_000_001, True),
+    ((7, 0), 20_000_000, False), (None, 20_000_000, True),
+])
+def test_scene_hold_failure_latches_stop(extension, packet, clock, guard):
+    motion = scene_motion(extension)
+    with pytest.raises((ValueError, TypeError)):
+        motion.hold([0., 0.], [0., 0.], .02, packet, clock, lambda _: guard)
+    with pytest.raises(ValueError):
+        motion.step([0., 0.], [0., 0.], .02, (7, 120), 120, lambda _: True)
+
+
 @pytest.mark.parametrize("event", ["target_moved", "obstacle_entered", "coverage_lost"])
 def test_scene_event_prevents_next_simulated_actuator_dispatch(extension, event):
     """Injected perception events, real MuJoCo actuator; not a camera detector test."""

@@ -67,6 +67,15 @@ cannot silently resume it. Callback results must be actual Python booleans.
 The wrapper delegates scene validity and motion computation to the Rust core;
 it does not recreate either algorithm in Python.
 
+`SceneMotion.hold` has the same input/scene/guard contract as `step`, but proposes
+the current targets without consuming or advancing a waypoint. It uses the same
+feedback validation, scene checks, geometry callback, elapsed-motion budget and
+stop latch as normal advancement. Holds therefore cannot extend a motion's budget
+or bypass stale coverage. This is a target hold; the host still checks the entire
+measured-to-held corridor and supplies the actual physical response. Five Python
+hold cases were observed failing before the API existed, then passed; an added
+Rust case pins non-advancement even at a reached waypoint (200 core tests pass).
+
 Measured locally, 2026-10-15: 15 new binding cases failed first because the export
 was absent, then passed. Three further MuJoCo integration cases start a single
 hinge moving through the real extension, inject target-revision, obstacle-revision
