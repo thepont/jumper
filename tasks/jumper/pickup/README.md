@@ -13,6 +13,51 @@ future TDD/BDD checks and research references are in the
 [balance and payload control proposal](../../../docs/BALANCE_CONTROL_PROPOSAL.md).
 This is a design reference, not an implemented balance capability.
 
+### Shared perception authority and compatibility — 2026-10-16
+
+The [four-paper compatibility review](../../../docs/PICKUP_RESEARCH_REVIEW.md)
+supports repairing the known observation-to-dispatch boundary before adding a
+grasp network or new contact controller. `ClawActionCfg.detections_factory` now
+optionally constructs the existing pose-capable sensor once. The opt-in host
+uses `term.detections` for supervision; observation and dispatch already use
+that same object. `None` retains the original position-only producer. All ten
+existing class methods remain; action processing, squeeze limiting, closing
+rates, robot geometry and capture/lift rules are unchanged.
+
+Measured on music-room: ten new external controls failed before implementation,
+then passed. Fifteen expanded unit/contract controls cover shared-packet dispatch,
+250 ms expiry boundary, dropout, reset/identity, invalid factory/result/wrong
+environment, settle delay, left grasp/right place compatibility and default
+observation/RNG/action/checkpoint-contract parity. **140 focused checks passed**
+including existing sensor timing, slow-claw, registry/layout, Rust extension and
+app-play checks (38 existing warnings). A right-hand near-grasp test fixture was
+corrected to the supported right-hand place mode; the existing curriculum
+restriction was not weakened. Task-specific controls remain external as required.
+
+One physical simulation is preserved in
+`logs/jumper/jumper.pickup/rust-capture-shared-sensor-2026-10-16`. Same reset-state
+fingerprint and seed 970001, one world/native CPU thread, unchanged sensor noise
+model and 40 simulated / 180 internal wall-second bounds. Sharing the producer
+changes RNG call ordering, so identical noise realisation is NOT claimed; fixed
+packet unit controls isolate the authority contract separately.
+
+The replay completed 609 steps (12.18 simulated / 29.155 internal wall seconds).
+No initial candidate passed complete grasp admission: 17/18 failed IK admission;
+the remaining candidate failed route/closure screening. Its proposed IK branches
+recorded base/left-upper-arm overlap of 1.390–2.255 mm at rejected configurations;
+these were not executed collisions. Candidates 4, 5, 10, 11 and 16 had admitted
+approach/grasp fits but failed the planned lift fit, illustrating that the
+reported initial rejection also includes future-stage feasibility. The finite
+search does not prove global unreachability. It stopped before
+approach, closure or lift, with **zero pickup** and zero auxiliary loaded score,
+approximately 2 mm maximum floor clearance and 4.576 mm maximum foot drift.
+Across 368 instrumented pre-approach dispatch ticks, validity disagreements were
+zero; there were no tracking ticks, so this is not an end-to-end tracking/closing
+delivery result. No replacement or easier-sensing run was launched. The fix is
+contract-tested, not a demonstrated pickup improvement or hardware capability.
+The next separate repair concerns initial/terminal plan admission and the
+approach-to-contact handoff; preserve all failed reports and existing limits.
+
 ### Pickup capture handoff audit — 2026-10-16
 
 Scope is pickup and secure hold only, not release, put-down or tray placement.
