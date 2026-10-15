@@ -825,6 +825,37 @@ claim. Final checkpoint SHA-256 values are
 `18f8c7c82b3405e125c6881aee604399ab421b7e31668751392b6480a0cbbdc4`
 (60 seconds).
 
+### Action-boundary trace — 2026-10-15
+
+One centre-case native CPU replay with the conservative closure-query repair
+and an external Observer reproduced the preserved nine-location case 00:
+613 steps (12.26 simulated seconds), identical reset and final qpos, and a
+byte-identical original trace. The controller's reported wall time was 31.46 s.
+The run was bounded to 40 simulated seconds / 210 process seconds, without
+retries or training; frozen source hashes matched after execution.
+
+The Observer recorded 613 action-processing calls and 2,452 physics-cadence
+applications. Of 234 nonzero arm requests, 25 were held, all coinciding with
+unusable detections at the action-layer sensor. Every accepted arm target was
+emitted unchanged (maximum difference 0 rad). Maximum applied-minus-measured
+arm error was 0.0310183 rad. These are servo targets, not measured torques.
+The independent perception gate explains these pauses, not the terminal
+failure: the proposed arm corridor was again rejected at 6.6044 mm point error.
+No closure, lift or pickup occurred; clearance failures describe proposed
+unexecuted configurations, not demonstrated live robot collisions.
+
+The external Observer delegates each control call exactly once and reads cached
+packet fields without extra sensing calls. Two behavioural checks failed before
+implementation; three Observer checks plus eleven closure checks then passed
+(14 total, 35 warnings). The original trace parity provides an additional
+end-to-end noninterference check for this case. No production controller changes
+were made. Contact force/torque provenance and a contact-aware closure admission
+contract remain unverified; a guarded physical closure cannot proceed by merely
+bypassing the existing failed corridor/alignment gate.
+
+Evidence and frozen external sources:
+`logs/jumper/jumper.pickup/command-trace-2026-10-15/`.
+
 ### Conservative closure-query admission — 2026-10-15
 
 The maths planner no longer admits a closure sample on a raw zero insert/object
