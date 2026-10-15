@@ -133,3 +133,34 @@ class GeometryClearance:
             distances.append((*names, distance))
         return ClearanceResult(all(d >= self.margin_m for _, _, d in distances),
                                tuple(distances), tuple(certified))
+
+    def check_contact_depth(self, qpos, *, max_penetration_m):
+        """Opt-in EXPECTED-contact check; never use for forbidden robot contact.
+
+        Reuse the same pose, pair and native-query authority as positive clearance.
+        A zero query needs either a separating plane or the compiled collision
+        manifold's signed depth. Missing manifold evidence stays unresolved,
+        including mask-disabled pairs. This proves neither grip load nor capture.
+        """
+        if (isinstance(max_penetration_m, (bool, np.bool_)) or
+                not isinstance(max_penetration_m, (int, float, np.integer, np.floating)) or
+                not math.isfinite(max_penetration_m) or not 0 <= max_penetration_m <= .1):
+            raise ValueError('expected-contact depth must be finite within [0, .1] metres')
+        baseline = self.check(qpos)
+        distances, verdicts = [], []
+        for (a, b, distance), (_, ids) in zip(baseline.distances, self.pairs, strict=True):
+            manifold = [float(c.dist) for c in self.data.contact[:self.data.ncon]
+                        if {int(c.geom1), int(c.geom2)} == set(ids)]
+            if any(not math.isfinite(d) for d in manifold):
+                raise RuntimeError('contact manifold returned nonfinite depth')
+            resolved = distance != 0.
+            if manifold:
+                distance = min(manifold) if distance == 0. else min(distance, *manifold)
+                resolved = True
+            elif not resolved:
+                bound = self._separation_bound(ids)
+                if bound is not None:
+                    distance, resolved = bound, True
+            distances.append((a, b, distance))
+            verdicts.append(resolved and distance >= -max_penetration_m)
+        return ClearanceResult(all(verdicts), tuple(distances), baseline.certified_pairs)

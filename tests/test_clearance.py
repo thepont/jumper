@@ -53,6 +53,36 @@ def test_nonfinite_distance_is_rejected_not_reported_clear(model, monkeypatch):
         check.check(model.qpos0)
 
 
+@pytest.mark.parametrize('separation, expected', [(.019, True), (.016, False), (.04, False)])
+def test_expected_contact_zero_query_needs_a_depth_witness(monkeypatch, separation, expected):
+    """Zero may mean a contact-query degeneracy, never automatic safe contact."""
+    from mjrl.clearance import GeometryClearance
+    model = mujoco.MjModel.from_xml_string('''<mujoco><worldbody>
+      <geom name="a" type="sphere" size=".01"/>
+      <body pos=".019 0 0"><freejoint/><geom name="b" type="sphere" size=".01" mass="1"/>
+      </body></worldbody></mujoco>''')
+    pose = model.qpos0.copy()
+    pose[0] = separation
+    before = pose.copy()
+    check = GeometryClearance(model, [('a', 'b')], margin_m=.001)
+    monkeypatch.setattr(mujoco, 'mj_geomDistance', lambda *args: 0.)
+    result = check.check_contact_depth(pose, max_penetration_m=.002)
+    assert result.passed is expected
+    np.testing.assert_array_equal(pose, before)
+    assert not check.check(pose).passed  # Positive-clearance contract is unchanged.
+    if separation == .019:
+        assert result.distances[0][2] == pytest.approx(-.001)
+
+
+def test_disabled_contact_masks_cannot_supply_a_zero_query_depth_witness(model, monkeypatch):
+    from mjrl.clearance import GeometryClearance
+    pose = model.qpos0.copy()
+    pose[7] = .019
+    monkeypatch.setattr(mujoco, 'mj_geomDistance', lambda *args: 0.)
+    assert not GeometryClearance(model, [('a', 'b')], margin_m=.001).check_contact_depth(
+        pose, max_penetration_m=.002).passed
+
+
 @pytest.mark.parametrize('separation,expected', [(.05,True),(.0205,False),(.02,False),(.015,False)])
 def test_zero_mesh_distance_needs_an_independent_separation_certificate(monkeypatch,separation,expected):
     from mjrl.clearance import GeometryClearance
