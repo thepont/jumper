@@ -10,7 +10,7 @@ import math
 
 import mujoco
 import numpy as np
-from scipy.optimize import least_squares
+from scipy.optimize import least_squares, minimize
 
 
 def _vector(value, size, name):
@@ -274,11 +274,18 @@ class PointIK:
         self.axis_scale_m = axis_scale_m
         self.data = mujoco.MjData(model)
 
-    def solve(self, qpos, target, *, axis_target=None, axis_plane_normal=None) -> IKResult:
+    def solve(self, qpos, target, *, axis_target=None, axis_plane_normal=None,
+              axis_tolerance_rad=None) -> IKResult:
         state = _vector(qpos, self.model.nq, "qpos")
         goal = _vector(target, 3, "target")
         if axis_target is not None and axis_plane_normal is not None:
             raise ValueError("choose an axis direction or a plane constraint, not both")
+        if axis_tolerance_rad is not None and (
+                axis_target is None or axis_plane_normal is not None or
+                isinstance(axis_tolerance_rad, (bool, np.bool_)) or
+                not isinstance(axis_tolerance_rad, (int, float, np.integer, np.floating)) or
+                not math.isfinite(axis_tolerance_rad) or not 0 < axis_tolerance_rad <= math.pi):
+            raise ValueError("position-first IK needs an axis target and a finite cone in (0, pi]")
         constrained = axis_target is not None or axis_plane_normal is not None
         if (self.local_axis is not None) != constrained:
             raise ValueError("local axis and an orientation constraint must both be supplied")
@@ -308,11 +315,35 @@ class PointIK:
         fit = least_squares(residual, np.clip(state[self.qadr], self.lower, self.upper),
                             bounds=(self.lower, self.upper), max_nfev=60,
                             ftol=1e-8, xtol=1e-8, gtol=1e-8)
-        error = residual(fit.x)
+        joints = fit.x.copy()
+        if axis_tolerance_rad is not None:
+            # Library-constrained position objective, not a softer orientation weight.
+            # Keep a tiny numerical interior so a solver boundary roundoff cannot
+            # masquerade as an admitted angle. Callers still check actual residuals.
+            cosine_limit = math.cos(axis_tolerance_rad * (1.-1e-6))
+
+            def position_cost(q):
+                return float(np.sum((1000*residual(q)[:3])**2))
+
+            def axis_cone(q):
+                residual(q)
+                axis = self.data.xmat[self.body].reshape(3, 3) @ self.local_axis
+                return float(axis@direction - cosine_limit)
+
+            constrained_fit = minimize(position_cost, joints, method='SLSQP',
+                bounds=list(zip(self.lower, self.upper, strict=True)),
+                constraints=[{'type': 'ineq', 'fun': axis_cone}],
+                options={'maxiter': 60, 'ftol': 1e-9})
+            candidates = [q for q in (joints, constrained_fit.x)
+                          if np.isfinite(q).all() and (q >= self.lower).all()
+                          and (q <= self.upper).all() and axis_cone(q) >= 0.]
+            if candidates:
+                joints = min(candidates, key=position_cost).copy()
+        error = residual(joints)
         angle = None
         if direction is not None:
             actual = self.data.xmat[self.body].reshape(3, 3) @ self.local_axis
             cosine = np.clip(actual @ direction, -1, 1)
             angle = float(np.arcsin(abs(cosine)) if axis_plane_normal is not None
                           else np.arccos(cosine))
-        return IKResult(fit.x.copy(), float(np.linalg.norm(error[:3])), angle)
+        return IKResult(joints, float(np.linalg.norm(error[:3])), angle)

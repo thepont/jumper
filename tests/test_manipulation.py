@@ -53,6 +53,47 @@ class JointShortcutTests(unittest.TestCase):
 
 
 class ManipulationTests(unittest.TestCase):
+    def test_position_first_ik_uses_the_allowed_axis_cone_without_changing_default(self):
+        model = mujoco.MjModel.from_xml_string('''<mujoco><compiler angle="radian"/>
+          <worldbody><body name="hand"><joint name="yaw" axis="0 0 1" range="-1 1"/>
+          <geom type="sphere" size=".01" mass="1"/></body></worldbody></mujoco>''')
+        ik = PointIK(model, 'hand', ('yaw',), (.1, 0., 0.),
+                     local_axis=(1, 0, 0), axis_scale_m=1.)
+        goal = (.1*np.cos(.15), .1*np.sin(.15), 0.)
+        state = model.qpos0.copy()
+        old = ik.solve(state, goal, axis_target=(1, 0, 0))
+        self.assertGreater(old.error_m, .01)
+        fit = ik.solve(state, goal, axis_target=(1, 0, 0),
+                       axis_tolerance_rad=np.deg2rad(10))
+        self.assertLess(fit.error_m, 1e-5)
+        self.assertLessEqual(fit.axis_error_rad, np.deg2rad(10))
+        np.testing.assert_array_equal(state, model.qpos0)
+        self.assertGreater(ik.solve(state, goal, axis_target=(1, 0, 0)).error_m, .01)
+
+    def test_position_first_ik_reports_an_impossible_axis_instead_of_success(self):
+        model = mujoco.MjModel.from_xml_string('''<mujoco><compiler angle="radian"/>
+          <worldbody><body name="hand"><joint name="yaw" axis="0 0 1" range="-.1 .1"/>
+          <geom type="sphere" size=".01" mass="1"/></body></worldbody></mujoco>''')
+        ik = PointIK(model, 'hand', ('yaw',), (.1, 0., 0.), local_axis=(1, 0, 0))
+        fit = ik.solve(model.qpos0, (.1, 0., 0.), axis_target=(-1, 0, 0), axis_tolerance_rad=.1)
+        self.assertGreater(fit.axis_error_rad, .1)
+        self.assertTrue((fit.joints >= ik.lower).all() and (fit.joints <= ik.upper).all())
+
+    def test_position_first_ik_rejects_invalid_cones_and_plane_combination(self):
+        model = mujoco.MjModel.from_xml_string('''<mujoco><worldbody><body name="hand">
+          <joint name="yaw" axis="0 0 1" range="-1 1"/>
+          <geom type="sphere" size=".01" mass="1"/></body></worldbody></mujoco>''')
+        ik = PointIK(model, 'hand', ('yaw',), (.1, 0., 0.), local_axis=(1, 0, 0))
+        for cone in (True, np.bool_(True), 0., -1., float('nan'), float('inf'), np.pi+.01, 'x'):
+            with self.assertRaises(ValueError):
+                ik.solve(model.qpos0, (.1, 0., 0.), axis_target=(1, 0, 0),
+                         axis_tolerance_rad=cone)
+        with self.assertRaises(ValueError):
+            ik.solve(model.qpos0, (.1, 0., 0.), axis_plane_normal=(0, 0, 1),
+                     axis_tolerance_rad=.1)
+        self.assertLess(ik.solve(model.qpos0, (.1, 0., 0.), axis_target=(1, 0, 0),
+                                axis_tolerance_rad=.1).error_m, 1e-6)
+
     def setUp(self):
         self.model = mujoco.MjModel.from_xml_string('''
           <mujoco><compiler angle="radian"/><worldbody><body name="hand">

@@ -34,7 +34,8 @@ def grasp_waypoint_goals(contact, inward, standoff_m):
     return point-axis*.017, grasp, grasp+np.array([0., 0., .05])
 
 
-def fit_grasp_waypoint(ik, qpos, goal, inward, *, alternate_starts=True):
+def fit_grasp_waypoint(ik, qpos, goal, inward, *, alternate_starts=True,
+                       axis_tolerance_rad=None):
     """Try ten deterministic starts through the existing IK authority.
 
     Only arm seed joints change in private copies. Admission retains separate
@@ -53,7 +54,8 @@ def fit_grasp_waypoint(ik, qpos, goal, inward, *, alternate_starts=True):
             seeds.append(seed)
     fits, records = [], []
     for seed in seeds:
-        fit = ik.solve(seed, goal, axis_target=inward)
+        options = {} if axis_tolerance_rad is None else {'axis_tolerance_rad': axis_tolerance_rad}
+        fit = ik.solve(seed, goal, axis_target=inward, **options)
         fits.append(fit)
         records.append({'error_m': float(fit.error_m),
                         'axis_error_rad': float(fit.axis_error_rad),
@@ -113,7 +115,8 @@ def plan_arm_preparation(ik, qpos, goal, inward, clear):
 
 
 class NativeGraspChecks:
-    def __init__(self, env, estimate, *, standoff_m=.002, axis_scale_m=.06):
+    def __init__(self, env, estimate, *, standoff_m=.002, axis_scale_m=.06,
+                 axis_tolerance_rad=None):
         # Opt-in IK trade-off, not an acceptance tolerance. The same IK instance
         # supplies every planned waypoint and subsequent terminal refresh.
         if (type(axis_scale_m) not in (int, float) or not math.isfinite(axis_scale_m) or
@@ -121,6 +124,11 @@ class NativeGraspChecks:
             raise ValueError('axis residual scale must be finite and within 0.01..0.1 m')
         grasp_waypoint_goals([0., 0., 0.], [0., 1., 0.], standoff_m)
         self.standoff_m = standoff_m
+        if axis_tolerance_rad is not None and (
+                type(axis_tolerance_rad) not in (int, float) or
+                not math.isfinite(axis_tolerance_rad) or not 0 < axis_tolerance_rad <= math.pi):
+            raise ValueError('optional IK axis cone must be finite within (0, pi]')
+        self.axis_tolerance_rad = axis_tolerance_rad
         if (not isinstance(estimate, ObjectPose) or estimate.orientation_wxyz is None or
                 not estimate.target.usable(env.common_step_counter * env.step_dt,
                                            max_age_s=.25, min_confidence=.6)):
@@ -297,7 +305,8 @@ class NativeGraspChecks:
         attempts = []
         seed = self.qpos.copy()
         for goal in goals:
-            fit, records = fit_grasp_waypoint(self.ik, seed, goal, inward)
+            fit, records = fit_grasp_waypoint(self.ik, seed, goal, inward,
+                axis_tolerance_rad=self.axis_tolerance_rad)
             fits.append(fit)
             attempts.append(records)
             seed[self.ik.qadr] = fit.joints
@@ -348,6 +357,7 @@ class NativeGraspChecks:
         """Check one complete IK route with the existing shared query budget."""
         ik_pass = all(f.error_m <= .004 and f.axis_error_rad <= math.radians(10.) for f in fits)
         detail = {'goals_world': [g.tolist() for g in goals],
+                  'axis_tolerance_rad': self.axis_tolerance_rad,
                   'standoff_m': self.standoff_m,
                   'axis_scale_m': self.ik.axis_scale_m,
                   'ik_errors_m': [f.error_m for f in fits],
