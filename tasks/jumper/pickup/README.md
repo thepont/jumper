@@ -8,6 +8,53 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Whole-plan IK weighting trial — 2026-10-15
+
+On `music-room`, a private saved-state review reduced grasp-point IK error from
+3.856 mm to 1.229 mm by changing the axis residual scale from 0.06 m to 0.03 m.
+Alignment remained within 10 degrees (7.404 versus 8.707 degrees); both weights
+passed the sampled approach, frozen-object closure and rigid-carriage lift
+checks at the saved final robot state and frozen noisy object estimate. These
+were zero-physics geometry checks, not pickups or replay of the original path.
+The changed single-start fit was 0.05171 rad from the original checked endpoint,
+outside its 0.05 rad refresh envelope, so changing only terminal IK was rejected
+as an implementation approach. A fresh full plan was required.
+
+`NativeGraspChecks(axis_scale_m=...)` now accepts an explicit finite 0.01..0.1 m
+IK residual scale, preserves the 0.06 m default, records it in planning details,
+and uses the same IK instance for planned waypoints and terminal refresh. This
+is an opt-in optimization weighting, not a change to the 4 mm / 10 degree
+acceptance limits or 1 mm clearance. The existing checking Strategy and grasp
+State machine remain the design authorities; no extra pattern layer was added.
+
+One authorized fresh centre-case simulation used 0.03 m throughout, otherwise
+the same seed 970001, sensor seed 970002, standard SOAP, jitter/noise, native CPU
+one world/thread, support motion and guards as the nine-case baseline. The
+protocol allowed 40 simulated seconds, 210 wall seconds and no retries. Its
+reset-state hash matched baseline case 00. Exit code was zero; the report was
+complete after 619 steps (12.38 simulated seconds), 31.86 s internal wall time.
+The selected candidate remained index 1. Its planned approach/grasp/lift errors
+were 0.939 / 1.182 / 0.875 mm, but actual final approach error was **9.181 mm**,
+versus baseline **6.604 mm**. It stopped at `actual arm command corridor rejected`:
+proposed unexecuted palm/noninsert-object states failed clearance. This is not
+evidence that their penetration depths occurred on the live trajectory.
+
+**Zero closures, lifts or pickups; maximum recorded loaded score zero.** Maximum
+recorded floor clearance was 2.000 mm including reset, not achieved lift; support
+drift was 6.437 mm. No timeout or wider-matrix retry. The frozen continuation rule
+required reaching closure without a live safety failure, and was not satisfied.
+Decision: do not promote 0.03 m as an improved default. Lower geometric residual
+alone did not fix guarded execution; measured tracking and compensated-command
+clearance remain unresolved. No reward, sensor, physics, safety threshold, NN
+policy or old artifact changed. No hardware validation is claimed.
+
+TDD: nine new external BDD cases failed before the API change and passed after
+it; **277 focused BDD/framework checks passed**, with 38 warnings. Ruff and
+whitespace checks passed; no full-suite claim. Evidence and replayable external
+probes are preserved under `math-grasp-ik-weight-2026-10-15/`, including the
+frozen protocol, source hashes, report, trace, video, red/green logs and the
+preceding private-state reviews. Task-specific probes stay outside `tests/`.
+
 ### Nine-location physical development matrix — 2026-10-15
 
 User-authorized one attempt at each world-XY offset in {-10, 0, +10} mm squared,
