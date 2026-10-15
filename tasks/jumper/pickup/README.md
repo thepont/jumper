@@ -3283,6 +3283,50 @@ pending a qualified centre grasp. Evidence:
 and [video](https://files.esson.au/f/jumper-stable-trim-2f0dd76b.mp4)
 are hosted until 2026-10-29.
 
+### Phase-specific insert clearance — 2026-10-15
+
+The approach planner previously used the same non-insert object clearance as
+closure/carry. A deterministic fake-geometry regression demonstrated that an
+insert-obstructed approach was admitted. `insert_object_pairs` now requires both
+LF insert geometries and all selected-object geometries; missing geometry fails
+closed. `NativeGraspChecks._path` additionally checks those pairs at 1 mm for
+non-carry paths, while closure/carry retains its existing contact exemption.
+Robot and non-insert checks still apply everywhere. Exhausted route/global query
+budgets do not authorise extra insert queries. This fixes phase admission, not
+the geometry, IK or the existence of a useful route.
+
+The new opt-in driver `/tmp/jumper_math_phase_clearance.py` applies the same
+insert-pair authority at runtime during support preparation and approach,
+including measured-to-command corridors and terminal corrections. Only measured
+alignment authorising CLOSE, or subsequent LIFT, permits insert contact. It
+retains all prior sensing, motion, pickup and self-clearance requirements. Old
+drivers and policies are preserved, not silently updated.
+
+External BDD `/tmp/jumper_phase_clearance_bdd.py` initially had three failures /
+two passing controls, including an actual wrongly admitted path. Expanded checks
+cover clear-path controls, non-insert/robot rejection, missing geometry, guard
+exceptions, carry contact permission and budget exhaustion. The route-budget
+fixture was copied to `/tmp/jumper_phase_route_budget_bdd.py` and supplied the new
+clear insert guard; no existing assertions changed. Final combined result:
+182 passed / 35 upstream Torch deprecation warnings, 5.37 s. No full-suite or
+lint pass is claimed.
+
+One native CPU replay (seed 970001, one world/thread; 5 ms physics / 20 ms
+control; 40 simulated seconds / 180 controller wall seconds / 210 process
+seconds plus 10 seconds cleanup maximum) completed exit 0 after 342 steps
+(6.84 simulated seconds, 15.16 controller wall seconds). It stopped during
+preparation at `planned support pose clearance rejected`: moving insert versus
+SOAP distance 0.969727 mm, below 1 mm. That was a proposed pose, not an executed
+penetration. Approach never started; no closing, lift or pickup. Maximum foot
+drift 4.361 mm; initial-fixture clearance 2 mm is not lifting. Reset fingerprint
+matches the prior attempt. This prevents the earlier unsafe-permission path;
+it does not certify dynamic/hardware safety or prove physical grasp feasibility.
+
+Decision: retain phase-specific clearance. Next investigate a clearance-checked
+claw preparation before body repositioning; do not shrink margins to permit the
+old preparation. No retry, geometry/physics changes, training or deployment.
+Evidence: `logs/jumper/jumper.pickup/phase-clearance-2026-10-15/`.
+
 ### Bounded object-relative feedback prototype — 2026-10-15
 
 `ObjectTargetTracker` now transports the original grasp point and inward normal

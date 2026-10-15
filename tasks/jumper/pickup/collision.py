@@ -38,6 +38,22 @@ def nonadjacent_arm_pairs(model):
     return tuple(pairs)
 
 
+def insert_object_pairs(model, object_name):
+    """Both LF inserts versus the selected object's geometry, for free approach.
+
+    Contact exemptions belong to closure/carry, not travel. Missing geometry
+    must not silently make this protection an empty check.
+    """
+    if not isinstance(object_name, str) or not object_name:
+        raise ValueError('insert clearance requires a nonempty object name')
+    names = [model.geom(g).name or '' for g in range(model.ngeom)]
+    inserts = tuple(f'robot/LF_{part}_grip_insert_link_meshcol' for part in ('palm', 'finger'))
+    objects = [name for name in names if name.startswith(object_name + '/')]
+    if not objects or any(name not in names for name in inserts):
+        raise ValueError('insert clearance requires both LF inserts and object geometry')
+    return tuple((insert, obj) for insert in inserts for obj in objects)
+
+
 def non_insert_object_pairs(model, object_name):
     """Teacher approach must not push an object with the palm/finger bodies."""
     if not isinstance(object_name, str) or not object_name:

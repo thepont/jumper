@@ -16,7 +16,8 @@ from mjrl.manipulation import IKResult, PointIK, plan_joint_path
 from scipy.spatial import ConvexHull
 from scipy.spatial.transform import Rotation
 
-from .collision import non_claw_object_pairs, non_insert_object_pairs, nonadjacent_arm_pairs
+from .collision import (insert_object_pairs, non_claw_object_pairs,
+                        non_insert_object_pairs, nonadjacent_arm_pairs)
 from .grasp_advisor import CandidateChecks, ObjectPose
 
 
@@ -164,6 +165,8 @@ class NativeGraspChecks:
         object_pairs = set(non_claw_object_pairs(self.model, name))
         object_pairs.update(non_insert_object_pairs(self.model, name))
         self.object_guard = GeometryClearance(self.model, tuple(sorted(object_pairs)), margin_m=.001)
+        self.insert_guard = GeometryClearance(self.model, insert_object_pairs(self.model, name),
+                                             margin_m=.001)
         self.max_queries, self.queries = 512, 0
         self.details = []
         self.rejections = []
@@ -202,7 +205,17 @@ class NativeGraspChecks:
                 old_q = self.qpos[self.object_adr+3:self.object_adr+7]
                 new_q = Rotation.from_matrix(rotation @ Rotation.from_quat(old_q[[1, 2, 3, 0]]).as_matrix()).as_quat()
                 pose[self.object_adr+3:self.object_adr+7] = new_q[[3, 0, 1, 2]]
-            return self._valid(pose)
+            before = self.queries
+            clear = self._valid(pose)
+            if self.queries == before:
+                return False  # Exhausted budget does not authorise another geometry query.
+            if carry_from is None:
+                inserts = self.insert_guard.check(pose)
+                if not inserts.passed:
+                    self.rejections.append({'reason': 'approach insert clearance rejected',
+                                            'insert_pairs': list(inserts.distances)})
+                clear = clear and inserts.passed
+            return clear
         ceiling = getattr(self, '_route_query_ceiling', None)
         checks = 512 if ceiling is None else max(2, min(512, ceiling-self.queries))
         return plan_joint_path(start, goal, self.ik.lower, self.ik.upper, valid,
