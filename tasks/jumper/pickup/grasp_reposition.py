@@ -10,6 +10,24 @@ import math
 import numpy as np
 
 
+def support_joint_names(prefix, available):
+    """Translate a support foot with J0..J2, keeping RF wrist/finger targets held.
+
+    Native preparation exposed RF forearm/finger clearance loss when the free
+    wrist participated in position-only IK. Three joints suffice to attempt
+    foot translation; residual and collision guards still decide feasibility.
+    """
+    if (prefix not in ('RF', 'LM', 'RM', 'LR', 'RR') or
+            not isinstance(available, (tuple, list)) or
+            any(not isinstance(name, str) for name in available) or
+            len(set(available)) != len(available)):
+        raise ValueError('support mapping needs unique named support-leg joints')
+    names = tuple(f'{prefix}_J{i}_joint' for i in range(3))
+    if not set(names).issubset(available):
+        raise ValueError('support foot requires its three positioning joints')
+    return names
+
+
 class SupportShift:
     def __init__(self):
         self.phase, self.reason = 'settle', None
