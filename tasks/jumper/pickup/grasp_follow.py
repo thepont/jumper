@@ -23,16 +23,20 @@ def tracking_trim(desired, current_targets, measured, lower, upper, dt):
     return joint_segment_step(current, compensated, max_delta=.45*dt)
 
 
-def refreshed_approach_target(ik, qpos, goal, inward, current_targets, endpoint, dt):
+def refreshed_approach_target(ik, qpos, goal, inward, current_targets, endpoint, dt, *,
+                              compensate_tracking=False):
     """Locally refit the terminal pose at the measured base, never switch branches.
 
     The caller owns fresh perception, measured arrival at the final waypoint,
     and clearance checks of every emitted command. This does not certify grip.
     The 0.05 rad envelope is relative to the original checked endpoint, not the
     previous fit, so repeated refreshes cannot silently wander off the plan.
+    Optional tracking trim acts on the nominal fit BEFORE rate limiting; trimming
+    a rate-limited intermediate target can otherwise create outward target drift.
     """
     current, original = (np.asarray(v, dtype=float) for v in (current_targets, endpoint))
-    if (current.shape != (4,) or original.shape != (4,) or
+    if (type(compensate_tracking) is not bool or
+            current.shape != (4,) or original.shape != (4,) or
             not np.isfinite(current).all() or not np.isfinite(original).all() or
             type(dt) not in (int, float) or not math.isfinite(dt) or not 0 < dt <= .02):
         raise ValueError('refresh needs finite four-joint targets and dt in (0, .02]')
@@ -44,6 +48,8 @@ def refreshed_approach_target(ik, qpos, goal, inward, current_targets, endpoint,
             not 0 <= fit.axis_error_rad <= math.radians(10.) or
             np.max(abs(joints-original)) > .05):
         return None
+    if compensate_tracking:
+        return tracking_trim(joints, current, np.asarray(qpos)[ik.qadr], ik.lower, ik.upper, dt)
     return joint_segment_step(current, joints, max_delta=.45*dt)
 
 
