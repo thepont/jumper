@@ -8,6 +8,46 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Bounded alternate IK starts — 2026-10-15
+
+The next maths-advisor slice uses the existing `PointIK` authority with ten
+deterministic starts per waypoint: measured/previous joints, joint-range centre,
+and eight seeded interior samples. Only private arm seed joints change. Each
+attempt records separate position/alignment residuals, admission and selection.
+Admitted fits are preferred, then smaller joint travel; rejected fits are ranked
+by their worst normalised residual. Collision/path/closure admission remains
+mandatory. This is a sampled local search, not exhaustive branch enumeration or
+joint optimisation across all waypoint combinations. Existing 4 mm/10-degree
+thresholds and the 1 mm clearance margin are unchanged.
+
+On the same local native CPU fixture and identical sensor packet/reset fingerprint
+as the prototype below, all **540 fits** (18 proposals, three waypoints, ten
+starts) failed joint position/alignment admission. The best complete proposal's
+maximum position residual remains **14.281 mm**. No approach, closure or lift
+path was admitted or executed. The one clearance query was the measured-start
+positive control. Live qpos and collision meshes remained unchanged by planning.
+
+A separate diagnostic removed the orientation objective, retaining the same ten
+starts per waypoint. Position-only admission counts were 1/18 approach, 1/18
+grasp and 2/18 lift; no complete proposal passed even position-only admission
+(best maximum residual 4.987 mm). The four passing individual point solutions
+had signed pad-axis errors 82.865, 80.843, 103.242 and 103.637 degrees. They are
+diagnostic solutions, never executable grasp admissions. An earlier single-start
+version is preserved separately and is not treated as the matched comparison.
+These observations support investigating reachable relative positioning and
+support-leg motion; they do not prove that every fixed-stance grasp is impossible.
+Any repositioning must be reached through checked servo motion, with support,
+tracking and collision measurements, before claiming physical pickup.
+
+Seven new BDD controls were observed red at the missing API, then green. They
+cover alternate-solution recovery, unreachable and misaligned rejection,
+determinism, bounded work, unchanged non-arm state and the single-start control.
+Together with 35 retained advisor checks, 16 slow-claw controls and 42 focused
+framework checks, **100 checks passed**. Ruff and whitespace checks passed.
+No full-suite, physical pickup, training improvement or hardware claim is made.
+Evidence and external controls are under
+`logs/jumper/jumper.pickup/math-grasp-branches-2026-10-15/`.
+
 ### Estimated-pose maths grasp advisor prototype — 2026-10-15
 
 The user authorised a maths-based grasp assistant with TDD/BDD. This first slice
