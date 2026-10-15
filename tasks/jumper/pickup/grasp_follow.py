@@ -115,7 +115,10 @@ class ApproachFollower:
                 type(dt) not in (int, float) or not math.isfinite(dt) or not 0 < dt <= .02):
             raise ValueError('approach needs finite four-joint feedback and dt in (0, .02]')
         target = self.points[self.index]
-        reached = max(np.max(abs(measured-target)), np.max(abs(current-target))) <= .02
+        # Measured servo lag does not authorize cutting a commanded corner.
+        # 1e-6 rad permits float32 target roundoff, not a geometric shortcut.
+        reached = (np.max(abs(measured-target)) <= .02 and
+                   np.max(abs(current-target)) <= 1e-6)
         if reached and self.index < len(self.points)-1:
             self.index += 1
             target = self.points[self.index]

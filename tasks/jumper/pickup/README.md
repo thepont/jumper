@@ -3081,3 +3081,41 @@ in `/tmp/jumper-route-budget-evidence.d1VlW9/evidence.zip` and the
 [evidence archive](https://files.esson.au/f/jumper-route-budget-evidence-65378fd6.zip)
 (hosted copy expires 2026-10-29). Task checks remain outside the framework suite
 as required by this repository.
+
+### Commanded waypoint corners — 2026-10-15
+
+The approach follower previously used the same 0.02 rad tolerance for measured
+servo arrival and commanded target arrival. It could therefore turn towards the
+next waypoint before commanding the checked corner, or declare terminal arrival
+early. Seven external BDD cases reproduced five failures before the fix.
+Commanded targets now reach the waypoint within 1e-6 rad (float32 roundoff)
+before progression; measured arrival retains its 0.02 rad tolerance. Velocity
+limits and per-command clearance checks remain unchanged. This prevents commanded
+corner cutting, not actual tracking error or every off-path motion.
+
+Local CPU: 102 focused checks passed, 35 warnings, 3.97 s. Existing follower,
+refresh, trim, route-budget, closure and shared manipulation/clearance tests
+passed unchanged. Ruff remains unavailable; no full-suite pass is claimed.
+
+One bounded centre replay used the unchanged external physical driver,
+seed 970001, one native CPU world/thread, single-route default, 40 simulated
+seconds and 210 process seconds maximum, no retries or training. It completed
+with exit 0 in 22.92 controller wall seconds after 468 steps (9.36 simulated
+seconds), stopping with "pose or plan lost": a recent packet differed from the
+planned origin by about 9.85 mm, beyond the unchanged 8 mm confirmation gate.
+Reset fingerprints matched the preserved baseline and frozen source hashes
+remained unchanged. No rejected clearance pairs were recorded; maximum support
+foot drift was 5.534 mm. There was no closure, lift, pickup or loaded central
+score. The 2 mm maximum floor clearance includes the initial fixture, not lift.
+
+The baseline reached 613 steps and 6.604 mm terminal point error; this case
+stopped earlier at 54.045 mm. Thus software correctness improved but physical
+pickup improvement was NOT demonstrated. Preserve the pose gate and investigate
+packet/frame provenance and planner/executor agreement next; do not infer that
+the 8 mm threshold should be relaxed or that longer runtime fixes this stop.
+
+Frozen source, plan, trace, report, review and video:
+`logs/jumper/jumper.pickup/waypoint-corner-2026-10-15/`.
+[Evidence](https://files.esson.au/f/jumper-waypoint-corner-evidence-f3113b0c.zip)
+and [video](https://files.esson.au/f/jumper-waypoint-corner-475a9e7f.mp4)
+are hosted until 2026-10-29. The external regression is included in the archive.
