@@ -8,6 +8,114 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Estimated-pose maths grasp advisor prototype — 2026-10-15
+
+The user authorised a maths-based grasp assistant with TDD/BDD. This first slice
+is an **advisory library and progression gate**, not a working pickup controller:
+it is not wired into PPO, camera inference, autonomous servo execution or hardware.
+No new NN training, demonstrations or deployment were started. The original
+teachers, policies, sensor observations, physics and reward functions are unchanged.
+
+The performance contract remains an independently verified physical pickup:
+11 consecutive pinched, unsupported samples with whole-hull floor clearance
+above 15 mm and no concurrent failure. Central reference points, IK fits,
+clipped geometry and nearby pads do not certify that outcome. The environment
+is the known static bench and one known convex SOAP shape, left claw and fixed
+stance; this does not solve arbitrary clutter, other shapes, either arm or
+robot repositioning. Prospective actuation uses the existing rate-bounded
+`ClawActions`, including its opt-in slower closing target, not pose writes.
+
+Three task-owned modules separate responsibilities:
+
+- `grasp_advisor.py`: validated `ObjectPose`/candidate boundaries, 18 bounded
+  proposals on the known convex hull's +/-Y sides, explicit admission evidence
+  and the `GripGate` State machine. Sampling uses hull half-spaces, not the
+  rectangular bounding-box face. Candidates rotate with measured object pose.
+- `grasp_sensing.py`: opt-in `PoseDetections` Adapter, reusing the existing
+  position/size capture schedule. Orientation is captured at 10 Hz, delivered
+  after 60 ms and expires with the same 250 ms/dropout validity. Its independent
+  RNG leaves the existing 13-field detection observation and position random
+  stream byte-identical in a 20-step control. Real orientation estimation and
+  calibration are **not implemented**; this is explicitly synthetic sensing.
+- `grasp_planning.py`: native single-world checking Strategy, reusing `PointIK`,
+  `plan_joint_path` and `GeometryClearance`. It derives the fixed insert normal
+  from compiled collision geometry at the existing on-facet reference. Object
+  pose and dimensions come from the estimate; a private recompiled object mesh
+  avoids retaining the true simulator size. Static bench CAD and ideal robot
+  proprioception remain assumptions, not a general sensor-derived scene map.
+
+`grasp_candidates(estimate, reference_hull, now_s=...)` returns no proposals for
+missing, stale, future-dated or orientation-free detections. It requires a
+usable estimate with synthetic availability confidence at least 0.6. Confidence
+1 in the synthetic Adapter means valid delivery, not calibrated camera accuracy.
+`choose_grasp(candidates, checker.assess)` ranks admitted proposals centrally
+without turning admission into physical success. Never replace an absent
+orientation with the identity quaternion merely to obtain a plan.
+
+The checking Strategy requires signed insert alignment within 10 degrees and
+position error at most 4 mm for a 17 mm stand-off, 2 mm surface stand-off and
+50 mm lift proposal. It bounds IK/path/clearance work; at most 512 combined
+clearance queries, one bounded path attempt per segment, and 33 sampled jaw
+apertures. Nonadjacent front-arm/self pairs, arm/floor and non-insert/object
+clearance retain a 1 mm planning margin. Intentional rigid/adjacent interfaces
+are still excluded by the existing pair authority: this is not complete
+no-scrape or hardware-safety certification. The margin is not a calibrated
+bound on 2 mm sensing error, tracking error or model uncertainty.
+
+Closure screening uses the actual curved insert model, stops on the first
+obstruction or excessive insert penetration, and does not require closing
+through an already near-seated object. Frozen-object closure and rigid-carriage
+lift remain limited geometric screening models, not dynamic seating proof or
+proof of global impossibility. Not-run checks stay explicit in detailed reports;
+their admission booleans are false, not measured physical failures. Concurrent
+robot/object rejections and query-budget exhaustion remain visible.
+
+The separate `GripGate` requires ten aligned samples over at least 180 ms before
+closing and eleven loaded-central samples over at least 200 ms before lift.
+Missing pose, lost alignment, safety failure and bounded phase timeouts block
+progress. Only independent canonical pickup feedback can mark completion.
+The caller still must supply these measurements and obey the phase; the gate
+itself does not issue servo commands. Native contact loads are not an available
+hardware tactile sensor. Loaded-central quality is not the historical unweighted
+contact-centroid <=0.35 criterion and is not inferred from candidate centrality.
+
+**Measured result, local native CPU/MuJoCo 3.11.0:** one seed-970001 standard
+SOAP fixture, +/-2.5% size configuration and 2 mm XY reset jitter. After 65
+open-jaw settling steps, a synthetic packet with 2 mm position/size noise and
+2-degree per-axis rotation-vector noise generated 18 proposals. **0/18 passed
+all-stage IK** at the existing thresholds. Approach, closure and lift paths
+were consequently not evaluated for these proposals; no close or lift was
+executed. The gate reported `blocked: no admitted grasp plan`, not pickup success.
+The best candidate's maximum three-stage position residual was 14.281 mm,
+versus the 4 mm limit. This is one starting branch, stance and bounded proposal
+family, not proof that no feasible central grasp exists.
+
+Independent controls gave zero position error for a known FK-derived reachable
+target and 4.966 m error for an intentionally unreachable target. The measured
+start passed the explicit clearance check. Private planning dimensions matched
+the packet (63.583 / 36.030 / 100.616 mm), and live qpos and collision-mesh hashes
+were unchanged. Only that positive-control clearance query ran in the final
+check; it does not exercise every planning/execution branch.
+
+TDD evidence: absent-module/API controls failed first; four malformed-candidate
+controls and two concurrent-rejection/budget controls were also observed red
+before their repairs. A native assertion caught the initial true-size geometry
+leak, then passed with private estimated geometry. Earlier diagnostic reports
+are preserved, not counted as independent trials or improvement. Final checks:
+35 advisor/sensor/clearance task probes, 16 retained slow-claw probes and 86
+focused framework checks passed (137 total); Ruff passed on the new modules
+and E4/E7/E9/F on external probes. No full-suite claim is made.
+
+Evidence and external probes are preserved in
+`logs/jumper/jumper.pickup/math-grasp-advisor-2026-10-15/` rather than adding
+task tests to the framework suite. No checkpoint was selected or modified.
+The next issue is reachable approach/grasp/lift geometry under the unchanged
+guards. Compare bounded alternative IK branches or a separately validated
+repositioning proposal before enabling closure; do not weaken tolerances or
+start another NN run to conceal this rejection. Physical closure/retention,
+fresh pose tracking, real perception, tactile feedback and an obeying servo
+executor remain unverified/unimplemented as described above.
+
 ### Opt-in slower closing target — 2026-10-15
 
 After the user observed rapid premature closure and tipping, pickup now accepts
