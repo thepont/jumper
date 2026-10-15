@@ -879,6 +879,54 @@ Evidence: `grasp-completion-standoff-2026-10-15`,
 `grasp-tracking-observe-2026-10-15`, and `grasp-replan-trial-2026-10-15`
 under `logs/jumper/jumper.pickup/`, including external driver/control copies.
 
+### Observations connected to Rust approach — 2026-10-16
+
+`ObservedApproach` now coordinates the existing `ObjectTargetTracker`, an admitted
+Rust `SceneMotion`, and the caller's clearance Strategy. It returns immutable
+joint proposals and tracked world goals; it owns no sensor, transform, IK,
+collision engine, servo, or duplicate stop state. The host owns dispatch and
+holding. Target observations and independent scene coverage are explicit inputs:
+the older timestamp controls freshness. Lost/malformed observations, motion
+outside the original 8 mm/10 degree envelope, coverage loss and unexpected contact
+consume the Rust motion. Recovery requires fresh plan admission. Within that
+envelope the existing joint route is followed; the returned goal does not itself
+refit IK or adapt waypoints. This is pre-contact coordination only.
+
+Fifteen external cases were observed red before the module existed, then passed
+with the real Rust extension. They cover normal tracking/commands, target and
+scene changes, contact, stale/future/missing coverage, malformed clock/pose data,
+repeated/reordered packets and geometry rejection. Combined with shared boundary
+and app-play regressions: **62 passed, 38 existing warnings**. Task controls are
+archived beside the replay; no full-suite or new lint result is claimed.
+
+One bounded replay on **music-room/native CPU**, seed 970001, used the existing
+noisy/delayed `PoseDetections`, original preparation/support shift, 4 mm approach
+stand-off, unchanged 1 mm guards and actual Rust proposals. Scene coverage was
+limited explicitly to the known fixed bench; there is no unknown-obstacle sensor.
+Bounds were 40 simulated seconds/180 wall seconds, one attempt, no replans.
+Preparation completed at 4.92 simulated seconds and the forward shift was
+30.381 mm. The admitted approach issued **17 Rust commands**, then stopped at
+12.66 simulated seconds (633 executed steps, 31.46 wall seconds) because the
+estimated target left the original plan envelope. The rejected observation was
+captured at 12.600000381 s. Maximum recorded foot drift was **4.753 mm**; no runtime
+clearance pairs were rejected. The final held targets match the last proposal
+within 5.822e-8 rad (float32 rounding). Closure, lift and canonical pickup are all
+**false**; maximum loaded score was zero and floor clearance remained about 2 mm.
+
+Decision: retain this connection and the unchanged invalidation guard. Diagnose
+estimated motion versus real object motion/frame consistency before changing its
+limits. No robust moving-object, braking-distance, hardware or grasp-success claim
+follows from this replay. The broad report's `phase=ready` describes support
+repositioning; `approach_reason` records the approach rejection.
+
+Evidence: `logs/jumper/jumper.pickup/observed-rust-approach-2026-10-16/` contains
+the plan/report/trace, frozen driver/sources, external controls, verification and
+12.68-second video. Archived sources match the plan hashes; the final coordinator
+only rewraps one source line after that replay. Download the
+[evidence ZIP](https://files.esson.au/f/jumper-observed-rust-approach-evidence-6fbce1fe.zip)
+and [approach video](https://files.esson.au/f/jumper-observed-rust-approach-502d80af.mp4);
+hosted copies expire after 14 days. Local artifacts and previous reports remain.
+
 ### Preparation branch recovery — 2026-10-15
 
 On music-room/native CPU, the unchanged preparation replay reproduced the
