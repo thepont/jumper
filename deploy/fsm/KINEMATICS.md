@@ -89,6 +89,41 @@ obstacle avoidance, whole-robot grasp completion or the full application using
 live scene updates. Existing app consumers remain unchanged until a scene
 producer supplies the documented coverage and revision guarantees.
 
+### Observed pickup approach coordinator (2026-10-16)
+
+`tasks/jumper/pickup/grasp_execution.py` composes `ObjectTargetTracker`, an admitted
+Rust `SceneMotion` and the host's existing clearance callback. The module returns
+an immutable joint proposal plus tracked world goal/axis. It owns sequencing only;
+sensor capture, transforms, IK, collision geometry and command dispatch remain
+with their existing owners. It imports neither a simulator nor a Rust extension
+loader. The host injects the actual motion instance, keeping build/loading policy
+outside task logic. This is a small Application Service using the existing State,
+Decorator and Strategy boundaries, without another motion or stop implementation.
+
+`ObservedApproach.command` takes current/measured joints and `dt`, a monotonic
+clock, measured world position/rotation and capture time, independent scene
+coverage time/revision, contact and the clearance callback. It reuses the tracker's
+original-plan 8 mm/10 degree envelope. The older target/coverage timestamp is
+passed to Rust in integer nanoseconds; fresh target data cannot mask expired
+coverage. The host owns coverage validity and revision ordering. Missing/rejected
+observations and unexpected contact go through the Rust stop latch. This executor
+is for pre-contact movement; closing and lifting require their own phase admission.
+
+Within the admitted envelope, Rust follows the existing joint waypoints and the
+returned world goal tracks the observation. This does not itself refit IK or steer
+the waypoints toward that goal; terminal correction remains a separate existing
+planner operation. The adapter cannot automatically replan or restart a stopped
+motion. The host must serialize scene reads/checks/dispatch and implement holding.
+
+Fifteen external task-level cases were observed red before the module existed,
+then passed against the actual extension. They pin normal proposals, transformed
+goal updates, target/revision change, contact, missing/expired/future coverage,
+malformed clocks/poses, repeated/reordered packets and geometric rejection.
+Combined with shared boundary/app-play checks: 62 passed, 38 existing warnings.
+One bounded known-bench replay then exercised 17 Rust commands from real delayed,
+noisy synthetic target packets before an estimated-motion rejection. See the
+pickup README and its preserved report for physical outcomes and limits.
+
 ## First slice: non-actuating forward kinematics
 
 `kinematics::SerialArm` is an Adapter around pinned OpenRR `k` 0.32.0.
