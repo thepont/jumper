@@ -88,3 +88,41 @@ def test_certificate_uses_geom_frames_after_a_shared_world_rotation(monkeypatch)
     result=GeometryClearance(model,[('a','b')],margin_m=.001).check(pose)
     assert result.passed
     np.testing.assert_allclose(result.distances[0][2],.03,atol=1e-8)
+
+
+@pytest.mark.parametrize('offset, margin, expected', [(1., .001, True),
+                                                     (1., .01, False), (0., .001, False)])
+@pytest.mark.parametrize('transformed', [False, True])
+def test_edge_separation_is_certified_without_admitting_overlapping_hulls(
+        monkeypatch, offset, margin, expected, transformed):
+    """Skew rods can be separated on edge-cross axes but not face normals."""
+    from itertools import product
+    from scipy.spatial.transform import Rotation
+    from mjrl.clearance import GeometryClearance
+    vertices = np.array(list(product([-1, 1], repeat=3))) * [.03, .006, .004]
+    text = ' '.join(str(x) for x in vertices.ravel())
+    model = mujoco.MjModel.from_xml_string(f'''<mujoco><asset>
+      <mesh name="rod" vertex="{text}"/></asset><worldbody>
+      <body><freejoint/><geom name="a" type="mesh" mesh="rod"/></body>
+      <body><freejoint/><geom name="b" type="mesh" mesh="rod"/></body>
+      </worldbody></mujoco>''')
+    rng = np.random.default_rng(53)
+    pose = model.qpos0.copy()
+    pose[3:7] = Rotation.random(random_state=rng).as_quat(scalar_first=True)
+    pose[10:14] = Rotation.random(random_state=rng).as_quat(scalar_first=True)
+    pose[7:10] = offset * np.array([.029897714081332676, .016127470174822384,
+                                   -.012490355810275966])
+    if transformed:
+        rotation = Rotation.from_rotvec([.3, -.8, .2])
+        for start in (0, 7):
+            pose[start:start+3] = rotation.apply(pose[start:start+3]) + [2., -3., 1.]
+            pose[start+3:start+7] = (rotation * Rotation.from_quat(
+                pose[start+3:start+7], scalar_first=True)).as_quat(scalar_first=True)
+    monkeypatch.setattr(mujoco, 'mj_geomDistance', lambda *args: 0.)
+    result = GeometryClearance(model, [('a', 'b')], margin_m=margin).check(pose)
+    assert result.passed is expected
+    if expected:
+        assert result.certified_pairs == (('a', 'b'),)
+        assert result.distances[0][2] > .008
+    else:
+        assert result.certified_pairs == ()

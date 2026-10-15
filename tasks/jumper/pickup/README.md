@@ -3191,3 +3191,47 @@ Frozen sources, report, trace, review and video are under
 [Evidence archive](https://files.esson.au/f/jumper-pose-recovery-evidence-dbf959c7.zip)
 and [video](https://files.esson.au/f/jumper-pose-recovery-ce48de48.mp4)
 include the external regression; hosted copies expire 2026-10-29.
+
+### Edge-axis clearance certificate — 2026-10-15
+
+A single bounded instrumented replay reproduced all 668 baseline trace rows
+byte-for-byte and captured the rejected query. The native distance was zero
+for palm meshcol3/soap, while the existing face-normal certificate found only
+0.824 mm. An edge-cross direction exhibited a 1.790 mm convex-hull separation,
+above the unchanged 1 mm requirement. Thus that zero was ambiguous, not proof
+of collision, and the face-only certificate search was incomplete. A numerical
+common-inscribed-ball LP returned negative radius; that radius is not a surface
+distance. The explicit separating direction, not the LP, justifies admission.
+
+Shared `GeometryClearance` now also tests normalised edge-cross directions when
+a zero native distance lacks a sufficient face certificate. It retains the
+1e-8 m numerical deduction and fails closed when a 250000-axis candidate budget
+would be exceeded. This adds sufficient separation certificates, not permission
+to ignore collisions or a complete continuous safety test. Cached hull edges
+include triangulation diagonals; any tested direction remains valid for a
+projection lower bound. Native nonzero distances remain unchanged.
+
+TDD: the skew-rod regression failed before implementation (1 failed, 12 passed).
+After adding rotated-frame and insufficient-margin controls, 90 focused checks
+passed, 35 warnings, 3.33 s. Tests cover overlapping hulls, margins, transforms,
+shared manipulation and existing task gates; no full-suite/Ruff pass is claimed.
+
+One subsequent local native CPU replay used seed 970001, one world/thread,
+40 simulated-second / 210 process-second caps, no retries or training. Its first
+668 rows match the baseline exactly; frozen source hashes match. It reached
+669 steps (13.38 simulated seconds, 34.70 controller wall seconds), then rejected
+the following proposed corridor: palm meshcol3 -0.503 mm, meshcol4 +0.644 mm,
+meshcol5 -0.684 mm and palm-pad-f -0.647 mm against soap. These are rejected
+query distances, not proof of executed penetration. No closure/lift/pickup;
+terminal point error 6.993 mm, axis error 0.1236 rad, foot drift 6.756 mm.
+Video inspected: the object remains upright and the hand open.
+
+Decision: keep this shared clearance correction, but do not claim grasp success.
+Next isolate the nominal terminal fit from tracking compensation and estimated
+versus live object geometry at the saved rejected command before adjusting any
+trajectory. Preserve all margins. Evidence directories:
+`palm-corridor-diagnostic-2026-10-15` and
+`edge-certificate-replay-2026-10-15` under the pickup log root.
+[Archived evidence](https://files.esson.au/f/jumper-edge-certificate-evidence-335fd24d.zip)
+and [replay video](https://files.esson.au/f/jumper-edge-certificate-d85b1062.mp4)
+are hosted until 2026-10-29.

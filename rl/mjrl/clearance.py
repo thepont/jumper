@@ -50,6 +50,7 @@ class GeometryClearance:
         self.model, self.data = model, mujoco.MjData(model)
         self.pairs, self.margin_m = tuple(resolved), float(margin_m)
         self._meshes = {}
+        self._mesh_edges = {}
 
     def _mesh(self, geom):
         if geom not in self._meshes:
@@ -60,7 +61,15 @@ class GeometryClearance:
                 start, count = int(self.model.mesh_vertadr[mesh]), int(self.model.mesh_vertnum[mesh])
                 vertices = self.model.mesh_vert[start:start + count].astype(float)
                 try:
-                    normals = ConvexHull(vertices).equations[:, :3]
+                    hull = ConvexHull(vertices)
+                    normals = hull.equations[:, :3]
+                    triangles = hull.simplices
+                    indices = np.unique(np.sort(np.concatenate([
+                        triangles[:, [0, 1]], triangles[:, [1, 2]],
+                        triangles[:, [2, 0]]]), axis=1), axis=0)
+                    edges = vertices[indices[:, 1]] - vertices[indices[:, 0]]
+                    lengths = np.linalg.norm(edges, axis=1)
+                    self._mesh_edges[geom] = edges[lengths > 1e-12] / lengths[lengths > 1e-12, None]
                     self._meshes[geom] = (vertices, normals)
                 except QhullError:
                     self._meshes[geom] = None
@@ -80,6 +89,26 @@ class GeometryClearance:
         a, b = projections
         gap = float(np.maximum(b.min(axis=0) - a.max(axis=0),
                                a.min(axis=0) - b.max(axis=0)).max())
+        if gap - 1e-8 < self.margin_m:
+            # Face normals alone miss skew edge/edge separation. Any additional
+            # unit axis still gives a conservative hull-distance lower bound.
+            # Bound work and fail closed if the candidate budget is exceeded;
+            # this remains a certificate search, not an intersection verdict.
+            edges = [self._mesh_edges[g] @ self.data.geom_xmat[g].reshape(3, 3).T
+                     for g in ids]
+            if len(edges[0]) * len(edges[1]) <= 250000:
+                for edge in edges[0]:
+                    cross = np.cross(edge, edges[1])
+                    lengths = np.linalg.norm(cross, axis=1)
+                    directions = cross[lengths > 1e-10] / lengths[lengths > 1e-10, None]
+                    for start in range(0, len(directions), 256):
+                        axes = directions[start:start+256]
+                        a, b = [p @ axes.T for p in points]
+                        candidate = float(np.maximum(b.min(axis=0) - a.max(axis=0),
+                                                     a.min(axis=0) - b.max(axis=0)).max())
+                        gap = max(gap, candidate)
+                        if gap - 1e-8 >= self.margin_m:
+                            return gap - 1e-8
         # Any exhibited separating plane proves a lower bound for the convex
         # hulls. A nonpositive result proves nothing; retain fail-closed zero.
         return gap - 1e-8 if math.isfinite(gap) and gap > 1e-8 else None
