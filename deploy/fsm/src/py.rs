@@ -821,8 +821,142 @@ impl PySceneMotion {
     }
 }
 
+/// Adapter only: all tracking/recovery/deadline policy lives in Rust.
+struct PythonPlanner(PyObject);
+
+impl crate::tracking::Planner for PythonPlanner {
+    fn plan(
+        &mut self,
+        observation: &crate::tracking::Observation,
+        feedback: &crate::tracking::Feedback<'_>,
+        remaining: std::time::Duration,
+    ) -> Result<Option<Vec<Vec<f64>>>, String> {
+        Python::with_gil(|py| -> PyResult<_> {
+            let request = pyo3::types::PyDict::new_bound(py);
+            request.set_item("position", observation.target.position.to_vec())?;
+            request.set_item("axis", observation.target.axis.to_vec())?;
+            request.set_item("current", feedback.current.to_vec())?;
+            request.set_item("measured", feedback.measured.to_vec())?;
+            request.set_item("now_ns", feedback.now.as_nanos())?;
+            request.set_item("observed_at_ns", observation.scene.observed_at.as_nanos())?;
+            request.set_item("scene_revision", observation.scene.revision)?;
+            request.set_item("remaining_ns", remaining.as_nanos())?;
+            self.0.call1(py, (request,))?.extract(py)
+        })
+        .map_err(|e| e.to_string())
+    }
+}
+
+#[pyclass(name = "Tracking")]
+pub struct PyTracking(Option<crate::tracking::Tracking<PythonPlanner>>);
+
+fn tracking_frame(
+    point: &Bound<'_, PyAny>,
+    axis: &Bound<'_, PyAny>,
+) -> PyResult<crate::kinematics::ToolFrame> {
+    Ok(crate::kinematics::ToolFrame {
+        position: point
+            .extract::<Vec<f64>>()?
+            .try_into()
+            .map_err(|_| err("expected three world position values"))?,
+        axis: axis
+            .extract::<Vec<f64>>()?
+            .try_into()
+            .map_err(|_| err("expected three world direction values"))?,
+    })
+}
+
+#[pymethods]
+impl PyTracking {
+    /// Policy JSON uses Rust Duration objects {secs, nanos}. Planner returns
+    /// checked joint waypoints, None for infeasible, or raises on infrastructure error.
+    #[new]
+    fn new(policy: &str, start_ns: &Bound<'_, PyAny>, planner: PyObject) -> PyResult<Self> {
+        if policy.len() > 65_536 || !planner.bind(start_ns.py()).is_callable() {
+            return Err(err("invalid tracking policy or planner"));
+        }
+        let policy: crate::tracking::Policy = serde_json::from_str(policy).map_err(err)?;
+        let session = crate::tracking::Tracking::new(
+            policy,
+            PythonPlanner(planner),
+            std::time::Duration::from_nanos(scene_integer(start_ns)?),
+        )
+        .map_err(err)?;
+        Ok(Self(Some(session)))
+    }
+
+    /// feedback = (current, measured, tool_point_w, tool_axis_w, now_ns, dt).
+    /// observation = None or (goal_w, inward_w, scene_revision, captured_at_ns).
+    /// Geometry checks the entire measured-to-proposed corridor, even on holds.
+    fn step(
+        &mut self,
+        feedback: &Bound<'_, PyAny>,
+        observation: &Bound<'_, PyAny>,
+        guard: PyObject,
+    ) -> PyResult<(Vec<f64>, String)> {
+        // Take before parsing: malformed boundary data cannot resume an old motion.
+        let mut session = self.0.take().ok_or_else(|| err("tracking stopped"))?;
+        let py = feedback.py();
+        let fields = feedback.downcast::<pyo3::types::PyTuple>()?;
+        if fields.len() != 6 {
+            return Err(err("expected six feedback fields"));
+        }
+        let current = fields.get_item(0)?.extract::<Vec<f64>>()?;
+        let measured = fields.get_item(1)?.extract::<Vec<f64>>()?;
+        let tool = tracking_frame(&fields.get_item(2)?, &fields.get_item(3)?)?;
+        let now = std::time::Duration::from_nanos(scene_integer(&fields.get_item(4)?)?);
+        let dt = fields.get_item(5)?.extract::<f64>()?;
+        let observation = if observation.is_none() {
+            None
+        } else {
+            let fields = observation.downcast::<pyo3::types::PyTuple>()?;
+            if fields.len() != 4 {
+                return Err(err("expected four observation fields"));
+            }
+            Some(crate::tracking::Observation {
+                target: tracking_frame(&fields.get_item(0)?, &fields.get_item(1)?)?,
+                scene: crate::joint_motion::SceneStamp {
+                    revision: scene_integer(&fields.get_item(2)?)?,
+                    observed_at: std::time::Duration::from_nanos(scene_integer(
+                        &fields.get_item(3)?,
+                    )?),
+                },
+            })
+        };
+        let command = session
+            .step(
+                crate::tracking::Feedback {
+                    current: &current,
+                    measured: &measured,
+                    tool,
+                    now,
+                    dt,
+                },
+                observation,
+                |candidate| {
+                    let result = guard
+                        .call1(py, (candidate.to_vec(),))
+                        .map_err(|e| e.to_string())?;
+                    if !result.bind(py).is_instance_of::<pyo3::types::PyBool>() {
+                        return Err("motion guard must return a boolean".into());
+                    }
+                    result.extract::<bool>(py).map_err(|e| e.to_string())
+                },
+            )
+            .map_err(err)?;
+        let status = match command.status {
+            crate::tracking::Status::Following => "following",
+            crate::tracking::Status::Holding => "holding",
+            crate::tracking::Status::Aligned => "aligned",
+        };
+        self.0 = Some(session);
+        Ok((command.joints, status.into()))
+    }
+}
+
 #[pymodule]
 fn mjrl_fsm(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyTracking>()?;
     m.add_class::<PySceneMotion>()?;
     m.add_class::<PyJointMotion>()?;
     m.add_class::<PySerialArm>()?;

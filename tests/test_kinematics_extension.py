@@ -43,6 +43,57 @@ def descriptor():
     }
 
 
+def tracking(extension, planner):
+    """Adapter contract: durations share the Rust monotonic clock, never wall time."""
+    def duration(ns):
+        return {"secs": ns // 1_000_000_000, "nanos": ns % 1_000_000_000}
+    policy = dict(lower=[-1.], upper=[1.], rate=.45, timeout=duration(1_000_000_000),
+                  freshness=duration(250_000_000), position_tolerance=.005,
+                  axis_tolerance=.17453292519943295, settle=duration(0))
+    return extension.Tracking(json.dumps(policy), 0, planner)
+
+
+def test_rust_tracking_adapter_reacquires_and_follows_a_moving_target(extension):
+    requests = []
+
+    def planner(request):
+        requests.append(request)
+        return None if request["position"][0] > .1 else [[request["position"][0] / .1]]
+
+    session = tracking(extension, planner)
+    axis = [1., 0., 0.]
+    def feedback(ms, q):
+        return ([q], [q], [q * .1, 0., 0.], axis, ms * 1_000_000, .02)
+
+    def packet(ms, x):
+        return ([x, 0., 0.], axis, 0, ms * 1_000_000)
+    assert session.step(feedback(20, 0.), packet(20, .2), lambda q: True) == ([0.], "holding")
+    joints, status = session.step(feedback(40, 0.), packet(40, .03), lambda q: True)
+    assert joints[0] == pytest.approx(.009)
+    assert status == "following"
+    joints, status = session.step(feedback(60, .009), packet(60, .0012), lambda q: True)
+    assert joints[0] > .009
+    assert status == "aligned"  # target moved; stationarity is not required
+    assert requests[-1]["remaining_ns"] < requests[0]["remaining_ns"]
+
+
+@pytest.mark.parametrize("failure", ["malformed", "guard", "planner"])
+def test_rust_tracking_adapter_failures_latch_without_unchecked_resume(extension, failure):
+    def planner(request):
+        if failure == "planner":
+            raise RuntimeError("injected planner failure")
+        return [[.3]]
+
+    session = tracking(extension, planner)
+    feedback = ([0.], [0.], [0., 0., 0.], [1., 0., 0.], 20_000_000, .02)
+    observation = ([.03, 0., 0.], [1., 0., 0.], 0, 20_000_000)
+    with pytest.raises((ValueError, TypeError)):
+        session.step(("bad",) if failure == "malformed" else feedback,
+                     observation, lambda q: 1 if failure == "guard" else True)
+    with pytest.raises(ValueError):
+        session.step(feedback, observation, lambda q: True)
+
+
 def test_given_named_joint_when_queried_then_return_world_point_and_direction(extension):
     arm = extension.SerialArm(json.dumps(descriptor()))
     point, axis = arm.forward([2, 3, 4], [1, 0, 0, 0], {"hinge": 0})

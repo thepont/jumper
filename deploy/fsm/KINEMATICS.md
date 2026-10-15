@@ -1,5 +1,70 @@
 # Portable grasp-controller plan
 
+## Recoverable observed-target tracking (2026-10-16)
+
+`tracking::Tracking<P>` is an opt-in Application Service around the existing
+`JointMotion` and `SceneMotion`. A `Planner` Strategy returns freshly checked
+joint waypoints or `None` when the current target is temporarily infeasible.
+The geometry Strategy checks every measured-to-proposed corridor, including
+held targets. No new IK, collision engine, trajectory interpolation or servo
+rate algorithm is introduced. Existing callers are unchanged.
+
+Behaviour:
+
+- Follow new reachable observations rather than terminating at waypoint arrival.
+- Discard the old route before planning for a new capture/scene. If planning is
+  infeasible, hold under a new geometry check and retry on new evidence. Do not
+  reuse the old route or busy-retry an unchanged packet.
+- Missing, stale or reordered target observations produce checked holds. A fresh
+  packet can reacquire the target within the same session and absolute deadline.
+- Planner infrastructure errors, malformed input, unsafe command corridors and
+  expired sessions latch stop. `None` is the recoverable planning verdict; an
+  exception is not silently reclassified as infeasibility.
+- Replanning never resets the original monotonic deadline or accumulated control
+  budget. Unsampled time does not count towards relative-alignment dwell.
+
+All target/tool points and directions are in the WORLD frame: metres and unit
+vectors. Feedback must contain measured FK, not FK of requested joint targets.
+Capture timestamps and scene revisions identify immutable observations. Reusing
+a capture time with different contents is invalid. Scene coverage remains the
+host's responsibility: fresh target detection does not certify fresh obstacle
+coverage. Planning/checking must be bounded, updates and dispatch serialized,
+and the host must recheck freshness after slow work before physical dispatch.
+
+`Following`, `Holding` and `Aligned` are typed command statuses. `Aligned` means
+the measured hand/object RELATIVE pose satisfies the configured limits, with an
+optional relative-error dwell. It NEVER requires a stationary object; dwell may
+be zero. It is not permission to close or evidence of capture. The grasp phase
+must still check closure geometry, relative velocity and closure/sensing latency,
+then measure contacts and the canonical lift witness. Fast interception outside
+the observed pose envelope is not implemented by this supervisor.
+
+The Python extension exposes this SAME Rust authority:
+
+```python
+session = mjrl_fsm.Tracking(policy_json, start_ns, planner)
+joints, status = session.step(
+    (current, measured, tool_point_w, tool_axis_w, now_ns, dt),
+    (goal_w, inward_w, scene_revision, captured_at_ns),  # or None
+    corridor_clear,
+)
+```
+
+The policy JSON has exactly `lower`, `upper`, `rate`, `timeout`, `freshness`,
+`position_tolerance`, `axis_tolerance` and `settle`. Durations use Rust/Serde
+`{"secs": integer, "nanos": integer}`; the direction tolerance is radians.
+The planner receives a dictionary with `position`, `axis`, `current`, `measured`,
+`now_ns`, `observed_at_ns`, `scene_revision` and `remaining_ns`. It returns a list
+of checked joint waypoints or `None`. Geometry must return an actual boolean.
+Malformed packets consume the adapter session before parsing can fail, preventing
+silent resumption. The adapter contains no tracking or retry policy of its own.
+
+This does not yet replace the pickup runner's stop-at-arrival path, export a
+browser tracking binding, dispatch hardware, add speed scheduling, or establish
+successful physical catching. A clearance-dependent speed governor needs actual
+hazard distances, latency and stopping constraints; target distance alone is not
+an adequate speed policy. The existing maximum joint-command rate is retained.
+
 ## Scene-bound motion proposals (2026-10-15)
 
 `joint_motion::SceneMotion` is an opt-in Decorator around `JointMotion`, not a
