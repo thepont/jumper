@@ -3053,3 +3053,31 @@ budget allocation, trajectory timing and contact-aware closure qualification.
 
 Frozen driver, external BDD, source identities, report and video are preserved in
 `logs/jumper/jumper.pickup/alternative-routes-2026-10-15/`.
+
+### Route-query reservation — 2026-10-15
+
+Opt-in multi-route assessment now reserves a share of remaining queries per
+route, preventing one disconnected search from starving every alternative.
+The global 512-query counter is never reset; closure shares the same allowance,
+and the reservation is released even on planner exceptions. Single-route mode
+remains the default and unchanged. All clearance and complete-route predicates
+remain mandatory. This is budget policy, not a safety-margin relaxation.
+
+On local native CPU, an external deterministic regression first failed with
+1 failed / 8 passed: the first route consumed all queries and the feasible
+alternative was not assessed. After the fix, 66 focused checks passed with
+35 warnings in 3.46 s, including 13 new budget cases and the shared real path
+planner. Ruff is unavailable; no lint or full-suite pass is claimed.
+
+This reserves capacity within a candidate, not across every candidate. The
+initial share uses the requested route count even when fewer distinct routes
+exist. Expensive valid routes may consequently be rejected; exhausted search
+is inconclusive, not proof of impossibility. No physical trial or training ran
+for this change, and no pickup improvement is claimed. Keep it opt-in pending
+physical qualification; execution-aware endpoint/corridor work remains.
+
+External regression sources, changed planner and measured review are preserved
+in `/tmp/jumper-route-budget-evidence.d1VlW9/evidence.zip` and the
+[evidence archive](https://files.esson.au/f/jumper-route-budget-evidence-65378fd6.zip)
+(hosted copy expires 2026-10-29). Task checks remain outside the framework suite
+as required by this repository.

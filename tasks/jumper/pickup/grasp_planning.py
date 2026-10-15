@@ -172,6 +172,11 @@ class NativeGraspChecks:
         if self.queries >= self.max_queries:
             self.rejections.append({'reason': 'query budget exhausted'})
             return False
+        ceiling = getattr(self, '_route_query_ceiling', None)
+        if ceiling is not None and self.queries >= ceiling:
+            self.rejections.append({'reason': 'route query share exhausted',
+                                    'queries': self.queries, 'route_ceiling': ceiling})
+            return False
         self.queries += 1
         # Keep both predicate results, rather than hiding concurrent obstruction.
         robot = self.robot_guard.check(qpos)
@@ -198,8 +203,27 @@ class NativeGraspChecks:
                 new_q = Rotation.from_matrix(rotation @ Rotation.from_quat(old_q[[1, 2, 3, 0]]).as_matrix()).as_quat()
                 pose[self.object_adr+3:self.object_adr+7] = new_q[[3, 0, 1, 2]]
             return self._valid(pose)
+        ceiling = getattr(self, '_route_query_ceiling', None)
+        checks = 512 if ceiling is None else max(2, min(512, ceiling-self.queries))
         return plan_joint_path(start, goal, self.ik.lower, self.ik.upper, valid,
-                               max_samples=64, max_checks=512, resolution_rad=.025)
+                               max_samples=64, max_checks=checks, resolution_rad=.025)
+
+    def _assess_budgeted_route(self, goals, fits, attempts, slots):
+        """Reserve an equal remaining-query share; never reset the global counter.
+
+        A spent share is unresolved search, not a geometric impossibility proof.
+        Unspent queries remain available to later routes/candidates. The scoped
+        ceiling also applies to closure and is released on planner exceptions.
+        """
+        if slots == 1:
+            return self._assess_fits(goals, fits, attempts)
+        previous = getattr(self, '_route_query_ceiling', None)
+        remaining = max(0, self.max_queries-self.queries)
+        self._route_query_ceiling = self.queries + remaining // slots
+        try:
+            return self._assess_fits(goals, fits, attempts)
+        finally:
+            self._route_query_ceiling = previous
 
     def assess(self, candidate, *, route_limit=1):
         """Optionally check up to three routes, sharing the original query budget.
@@ -207,7 +231,10 @@ class NativeGraspChecks:
         The legacy route is first. Alternatives reuse the ten existing IK starts
         at each waypoint; they are not a complete search of IK branches. Stop at
         the first fully admitted route, never combining checks from different
-        routes. The default stays single-route until physical qualification.
+        routes. Opt-in routes receive equal shares of remaining queries so one
+        disconnected search cannot consume all fallback capacity. This can reject
+        a costly valid route; exhaustion is inconclusive. The default stays
+        single-route until physical qualification.
         """
         if type(route_limit) is not int or not 1 <= route_limit <= 3:
             raise ValueError('route limit must be an integer in [1, 3]')
@@ -222,7 +249,7 @@ class NativeGraspChecks:
             fits.append(fit)
             attempts.append(records)
             seed[self.ik.qadr] = fit.joints
-        result = self._assess_fits(goals, fits, attempts)
+        result = self._assess_budgeted_route(goals, fits, attempts, route_limit)
         if route_limit == 1 or result.admitted:
             return result
         baseline = self.details.pop()
@@ -246,13 +273,14 @@ class NativeGraspChecks:
 
         routes = list(product(*pools))[1:]  # First combination is the tested legacy route.
         routes.sort(key=travel)
-        for route in routes[:route_limit-1]:
+        for index, route in enumerate(routes[:route_limit-1]):
             if self.queries >= self.max_queries:
                 break
             records = [[dict(row, selected=bool(np.max(abs(
                 np.asarray(row['joints'])-fit.joints)) <= 1e-5)) for row in rows]
                        for rows, fit in zip(attempts, route, strict=True)]
-            alternative = self._assess_fits(goals, route, records)
+            slots = min(len(routes), route_limit-1)-index
+            alternative = self._assess_budgeted_route(goals, route, records, slots)
             detail = self.details.pop()
             reviewed.append(dict(detail, admitted=alternative.admitted))
             if alternative.admitted:
