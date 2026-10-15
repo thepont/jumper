@@ -1,5 +1,6 @@
 """Five learned controls, with bounded servo targets and a perception gate."""
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import torch
@@ -34,6 +35,8 @@ class ClawActionCfg(ActionTermCfg):
     freeze_actor_normalization: bool = False
     bounded_action_history: bool = False
     finger_close_speed: float | None = None
+    # Opt-in simulation composition seam; default training observations stay unchanged.
+    detections_factory: Callable[..., SimulatedDetections] | None = None
 
     def __post_init__(self):
         rate = self.finger_close_speed
@@ -47,6 +50,9 @@ class ClawActionCfg(ActionTermCfg):
 
 class ClawActions(ActionTerm):
     def __init__(self, cfg, env):
+        factory = SimulatedDetections if cfg.detections_factory is None else cfg.detections_factory
+        if not callable(factory):
+            raise ValueError('detections factory must be callable or absent')
         super().__init__(cfg, env)
         self.joints = self._entity.find_joints(list(cfg.joint_names), preserve_order=True)[0]
         self.finger_sign = 1. if cfg.side == 'left' else -1.
@@ -58,7 +64,9 @@ class ClawActions(ActionTerm):
         self.object_names = cfg.object_names
         self.scales = torch.tensor(cfg.object_scales, device=env.device)
         self.object_size = torch.tensor(cfg.object_size, device=env.device)
-        self.detections = SimulatedDetections(env, noise_m=cfg.noise_m, dropout=cfg.dropout)
+        self.detections = factory(env, noise_m=cfg.noise_m, dropout=cfg.dropout)
+        if not isinstance(self.detections, SimulatedDetections) or self.detections.env is not env:
+            raise ValueError('detections factory must return a compatible sensor for this environment')
         self.evidence = PickupEvidence(
             env, side=cfg.side, local_point=cfg.local_point, finger_ids=self.joints[-1:],
             finger_sign=self.finger_sign, open_angle=cfg.open_angle,
