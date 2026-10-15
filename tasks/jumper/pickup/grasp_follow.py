@@ -5,6 +5,30 @@ import numpy as np
 from mjrl.manipulation import joint_segment_step
 
 
+def refreshed_approach_target(ik, qpos, goal, inward, current_targets, endpoint, dt):
+    """Locally refit the terminal pose at the measured base, never switch branches.
+
+    The caller owns fresh perception, measured arrival at the final waypoint,
+    and clearance checks of every emitted command. This does not certify grip.
+    The 0.05 rad envelope is relative to the original checked endpoint, not the
+    previous fit, so repeated refreshes cannot silently wander off the plan.
+    """
+    current, original = (np.asarray(v, dtype=float) for v in (current_targets, endpoint))
+    if (current.shape != (4,) or original.shape != (4,) or
+            not np.isfinite(current).all() or not np.isfinite(original).all() or
+            type(dt) not in (int, float) or not math.isfinite(dt) or not 0 < dt <= .02):
+        raise ValueError('refresh needs finite four-joint targets and dt in (0, .02]')
+    fit = ik.solve(qpos, goal, axis_target=inward)
+    joints = np.asarray(fit.joints, dtype=float)
+    if (joints.shape != (4,) or not np.isfinite(joints).all() or
+            not math.isfinite(fit.error_m) or not 0 <= fit.error_m <= .004 or
+            fit.axis_error_rad is None or not math.isfinite(fit.axis_error_rad) or
+            not 0 <= fit.axis_error_rad <= math.radians(10.) or
+            np.max(abs(joints-original)) > .05):
+        return None
+    return joint_segment_step(current, joints, max_delta=.45*dt)
+
+
 class PlanPoseGate:
     """Hold on a suspect position packet; expire rather than moving blindly."""
     def __init__(self):
