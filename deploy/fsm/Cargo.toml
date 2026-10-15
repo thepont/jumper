@@ -20,6 +20,7 @@ path = "src/bin/controller.rs"
 required-features = ["device"]
 
 [dependencies]
+k = "=0.32.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"

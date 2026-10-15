@@ -21,6 +21,7 @@
 //! name**; see `layout.rs` for why that matters more than it looks.
 
 pub mod action;
+pub mod kinematics;
 // Opening a bundle directory. Off for `wasm32`, which has no filesystem to point
 // at and receives its bundle as bytes -- see the module docstring.
 #[cfg(not(target_arch = "wasm32"))]
