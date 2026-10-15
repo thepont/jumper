@@ -49,6 +49,70 @@ code, artifacts and checkpoints are preserved. At the preceding measured rate
 of 467 environment steps/second, 5.12 million steps project to about three hours
 of training; this is an estimate, not a completion promise or learning claim.
 
+#### Completed 10k result — 2026-10-15
+
+The Gemini run completed all 10,000 updates / 5,120,000 environment steps in
+10,405.317 seconds (2 h 53 min; 492.06 environment steps/s, training only).
+Training and evaluation exited zero without wall timeouts; final reports are
+complete. Exact completed training attempts total 1,816: 162 true terminations
+and 1,654 timeout-only endings. True terminations include all non-time-limit
+termination types; this counter alone does not identify failure/success reasons.
+Per-world completions are 227/229/224/225/236/225/223/227. Including each initial
+world and autoreset, 1,824 attempts were started; eight remained unfinished at
+the fixed step budget. These counts are not inferred from rolling averages.
+
+| Diagnostic size | Evaluated | Qualified pickups | Auxiliary central-loaded pickups |
+| --- | ---: | ---: | ---: |
+| Standard | 8 | 0 | 0 |
+| Small | 2 | 0 | 0 |
+| Large | 2 | 0 | 0 |
+
+All twelve evaluation episodes ran the full sixty seconds and timed out; none
+ended for explicit clearance failure, detected self-contact, chassis intrusion,
+fall, too-low state or invalid fixture. No observed guard stop is not hardware
+safety proof. Maximum auxiliary loaded score was exactly zero. Maximum whole
+object floor clearance was 0.151657 mm, below the unchanged >15 mm / eleven-frame
+physical pickup requirement. No pickup-time estimate exists because no qualified
+pickup occurred. The final checkpoint is preserved with SHA-256
+`0f91a6ff1bff1b5d0d43705affc8d465ad1b250663a258e32bb81df42381a585`.
+
+Final audit matched all twelve starting-state fingerprints against the earlier
+short Gemini diagnostic evaluation (also 0/12 pickups). All 634 frozen source/
+asset hashes and three control hashes matched on Gemini and in the local review
+copy. There are no incomplete reports or excluded diagnostic episodes. The first
+scenario MP4 is 1,501 frames / 60.04 seconds at 25 fps; its late frame was inspected
+alongside the reports. Software rendering retains background line artefacts.
+
+The full training log provides a correction to reading only the latest summaries:
+the `grip_contact` metric occasionally reached 1.0, although its final printed
+value was zero. Across 1,667 printed episode-summary samples, pickup, lift reward
+and central-pickup reward remained 0.0000. Central-load reward summaries ranged
+from -0.0001 to 0.0000; printed zeros are rounded, not proof of exactly zero raw
+training reward. Reported reach distance ranged 0.0585–0.3417 m and ended at
+0.1835 m. Mean action standard deviation decreased from 0.60 to 0.10 over 10,000
+updates. These are training diagnostics, not independent evaluation, exact contact
+counts or an isolated causal explanation. Occasional contact did not establish
+stable grip or qualified lift, and decreasing exploration alone does not prove
+the cause of failure.
+
+Decision: preserve the candidate and every earlier checkpoint, promote neither
+short nor long policy, and close this bounded run without automatic replacement.
+Tenfold training steps did not produce a successful final policy in these trials;
+the claim that this particular larger budget would suffice is unsupported. This
+does not prove further training can never work, identify a reward/control defect,
+or establish algorithm-level equality from one seed and a reused diagnostic set.
+It does not resolve the earlier 30-versus-60-second matched-attempt question.
+The next proposed investigation is to trace approach/contact reward signals and
+exploration against actual motion before another unchanged training extension;
+no such investigation or reward tuning was launched by this review.
+
+Seven external orchestration/counter controls and final artifact checks passed;
+Ruff passed for the final audit. No new full-suite or hardware check is claimed.
+The machine-readable review, reports, logs, frozen controls and final checkpoint
+are retained under `long10k-gemini-2026-10-15/`, with scoped evidence ZIP and first
+evaluation video published separately. Hosted copies expire after fourteen days;
+the original remote checkpoint collection and local evidence remain preserved.
+
 ### Matched episode-horizon pilot — 2026-10-15
 
 The user authorised one run on each machine to investigate whether the prior
