@@ -3147,3 +3147,47 @@ stale packets and repeated outliers, before implementation. Longer runtime
 alone cannot bypass this terminal decision. No physical improvement is claimed.
 Evidence: `logs/jumper/jumper.pickup/pose-terminal-observer-2026-10-15/`;
 external probes: `/tmp/jumper_pose_{timing_bdd,observer_bdd,observer,observer_review}.py`.
+
+### Opt-in bounded pose recovery — 2026-10-15
+
+Diagnosis: confirmation expiry was immediately terminal in the approach caller.
+This was fail-closed behaviour, not a demonstrated transform defect. Add an
+opt-in recovery policy to the existing State machine, rather than changing the
+8 mm position gate, 250 ms packet age, noise or collision margins. Defaults
+retain immediate failure. `GripGate(pose_recovery_s=.5)` allows only an
+open-hand APPROACH hold for at most 0.5 s per outage, within the existing total
+15 s approach budget. It does not authorise motion while perception is unusable.
+Safety/plan failure is immediate; closure/lift cannot recover this way.
+`PlanPoseGate(recovery_samples=2)` requires two distinct fresh in-range packets
+after expiry; duplicates, outliers and stale gaps cannot build confirmation.
+This revalidates the original position, not a moved target: no automatic new
+plan, orientation filtering, uncertainty calibration or hardware claim.
+
+External TDD/BDD: `/tmp/jumper_pose_recovery_bdd.py` first reported 15 failures
+and one pass because the opt-in contract was absent. After implementation and
+three additional boundary cases, 109 focused tests passed (35 warnings, 3.15 s),
+including unchanged advisor, pose, timing, follower, waypoint and shared
+manipulation/clearance checks. No full-suite or Ruff pass is claimed.
+
+One local native CPU centre replay, seed 970001, one world/thread, unchanged
+40 simulated-second / 210 wall-second caps, used the explicit opt-in external
+driver `/tmp/jumper_math_pose_recovery.py`. It finished exit 0 after 668 steps
+(13.36 simulated seconds; 33.29 controller wall seconds), versus 468 steps
+before recovery. All 65 held trace frames retained their arm targets. Source
+hashes and reset fingerprint checked. The traces first differ at step 424:
+two-sample recovery conservatively holds a packet that the old gate accepted
+immediately. Therefore this is not an identical trajectory until step 468.
+
+The next command corridor was rejected for `LF_palm_link_meshcol3` against
+`soap/soap` at reported distance 0.0. This is a rejected candidate, not proof
+of an executed collision. Terminal point error was 8.134 mm and axis error
+0.1223 rad. Maximum foot drift was 6.753 mm. No closure, lift, pickup or loaded
+central score occurred. The 2 mm maximum floor clearance includes the fixture.
+Decision: retain the opt-in recovery, preserve all guards, and diagnose the
+rejected palm/object corridor before further physical trials. One development
+case establishes recovery-path execution, not robustness across locations.
+Frozen sources, report, trace, review and video are under
+`logs/jumper/jumper.pickup/pose-recovery-2026-10-15/`.
+[Evidence archive](https://files.esson.au/f/jumper-pose-recovery-evidence-dbf959c7.zip)
+and [video](https://files.esson.au/f/jumper-pose-recovery-ce48de48.mp4)
+include the external regression; hosted copies expire 2026-10-29.

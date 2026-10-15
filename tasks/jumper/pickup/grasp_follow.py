@@ -72,9 +72,13 @@ def refreshed_approach_target(ik, qpos, goal, inward, current_targets, endpoint,
 
 class PlanPoseGate:
     """Hold on a suspect position packet; expire rather than moving blindly."""
-    def __init__(self):
+    def __init__(self, *, recovery_samples=1):
+        if type(recovery_samples) is not int or recovery_samples not in (1, 2):
+            raise ValueError('pose recovery requires one or two fresh confirmations')
         self.confirmed, self.last_packet = None, None
         self.held = True
+        self.recovery_samples = recovery_samples
+        self.recovery_count, self.recovery_at = 0, None
 
     def expired(self, now):
         if type(now) not in (int, float) or not math.isfinite(now) or now < 0:
@@ -91,8 +95,19 @@ class PlanPoseGate:
             if self.last_packet is None or observed_at > self.last_packet:
                 self.last_packet = observed_at
                 self.held = error_m > .008
+                recovering = self.confirmed is not None and self.expired(now)
+                if recovering and self.recovery_samples > 1:
+                    if self.held or now-observed_at > .25:
+                        self.recovery_count, self.recovery_at = 0, None
+                    else:
+                        if self.recovery_at is None or observed_at-self.recovery_at > .25:
+                            self.recovery_count = 0
+                        self.recovery_count += 1
+                        self.recovery_at = observed_at
+                    self.held = self.recovery_count < self.recovery_samples
                 if not self.held:
                     self.confirmed = observed_at
+                    self.recovery_count, self.recovery_at = 0, None
         elif error_m is not None:
             raise ValueError('pose error requires a packet timestamp')
         return not self.held and not self.expired(now)

@@ -165,7 +165,12 @@ class GripGate:
     in the corresponding phase. Samples alone cannot bypass minimum dwell time.
     Native loads are simulation feedback, not an existing hardware tactile sensor.
     """
-    def __init__(self):
+    def __init__(self, *, pose_recovery_s=0.):
+        if (type(pose_recovery_s) not in (int, float) or
+                not math.isfinite(pose_recovery_s) or not 0 <= pose_recovery_s <= .5):
+            raise ValueError('pose recovery budget must be finite in [0, .5] seconds')
+        self.pose_recovery_s = pose_recovery_s
+        self.pose_lost_at = None
         self.phase = Phase.WAIT
         self.reason = None
         self.entered = None
@@ -206,6 +211,19 @@ class GripGate:
                 self._transition(Phase.BLOCKED, now_s, 'no admitted grasp plan')
             elif now_s-self.entered > 4.:
                 self._transition(Phase.BLOCKED, now_s, 'usable object pose timeout')
+        elif (self.phase == Phase.APPROACH and self.pose_recovery_s > 0 and
+              plan_admitted and (not pose_usable or self.pose_lost_at is not None)):
+            # This is permission to wait, NOT to move. Caller must hold arm and
+            # jaw targets while pose_usable is false and keep clearance checks.
+            if self.pose_lost_at is None:
+                self.pose_lost_at = now_s
+            self.count, self.stable_since = 0, None
+            if now_s-self.entered > 15.:
+                self._transition(Phase.BLOCKED, now_s, 'measured alignment timeout')
+            elif now_s-self.pose_lost_at > self.pose_recovery_s:
+                self._transition(Phase.BLOCKED, now_s, 'pose recovery timeout')
+            elif pose_usable:
+                self.pose_lost_at = None
         elif not pose_usable or not plan_admitted:
             self._transition(Phase.BLOCKED, now_s, 'pose or plan lost')
         elif self.phase == Phase.APPROACH:
