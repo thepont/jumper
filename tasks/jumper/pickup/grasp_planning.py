@@ -177,7 +177,7 @@ class NativeGraspChecks:
                 pose[self.object_adr+3:self.object_adr+7] = new_q[[3, 0, 1, 2]]
             return self._valid(pose)
         return plan_joint_path(start, goal, self.ik.lower, self.ik.upper, valid,
-                               max_samples=1, max_checks=64, resolution_rad=.025)
+                               max_samples=64, max_checks=512, resolution_rad=.025)
 
     def assess(self, candidate):
         contact = self.base_position + self.base_rotation @ candidate.contact_b
@@ -206,6 +206,9 @@ class NativeGraspChecks:
             second = self._path(fits[0].joints, fits[1].joints, jaw=self.term.cfg.open_angle)
             path_pass = first.found and second.found
             detail['path'] = [first.reason, second.reason]
+            detail['approach_waypoints'] = [
+                [q.tolist() for q in segment.waypoints] for segment in (first, second)]
+            detail['path_checks'] = [first.checks, second.checks]
             if not path_pass:
                 reasons.append('sampled approach corridor rejected or query budget exhausted')
             closure_pose = self.qpos.copy()
