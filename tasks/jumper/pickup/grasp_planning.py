@@ -19,6 +19,19 @@ from .collision import non_claw_object_pairs, non_insert_object_pairs, nonadjace
 from .grasp_advisor import CandidateChecks, ObjectPose
 
 
+def grasp_waypoint_goals(contact, inward, standoff_m):
+    """World-frame approach, grasp and lift references; not contact evidence."""
+    point, axis = (np.asarray(v, dtype=float) for v in (contact, inward))
+    if (point.shape != (3,) or axis.shape != (3,) or
+            not np.isfinite(point).all() or not np.isfinite(axis).all() or
+            abs(np.linalg.norm(axis)-1.) > 1e-5 or
+            type(standoff_m) not in (int, float) or not math.isfinite(standoff_m) or
+            not .002 <= standoff_m <= .01):
+        raise ValueError('waypoints need finite world point, unit axis and 2..10 mm stand-off')
+    grasp = point-axis*standoff_m
+    return point-axis*.017, grasp, grasp+np.array([0., 0., .05])
+
+
 def fit_grasp_waypoint(ik, qpos, goal, inward, *, alternate_starts=True):
     """Try ten deterministic starts through the existing IK authority.
 
@@ -58,7 +71,9 @@ def fit_grasp_waypoint(ik, qpos, goal, inward, *, alternate_starts=True):
 
 
 class NativeGraspChecks:
-    def __init__(self, env, estimate):
+    def __init__(self, env, estimate, *, standoff_m=.002):
+        grasp_waypoint_goals([0., 0., 0.], [0., 1., 0.], standoff_m)
+        self.standoff_m = standoff_m
         if (not isinstance(estimate, ObjectPose) or estimate.orientation_wxyz is None or
                 not estimate.target.usable(env.common_step_counter * env.step_dt,
                                            max_age_s=.25, min_confidence=.6)):
@@ -182,8 +197,7 @@ class NativeGraspChecks:
     def assess(self, candidate):
         contact = self.base_position + self.base_rotation @ candidate.contact_b
         inward = self.base_rotation @ candidate.inward_b
-        goals = (contact-inward*.017, contact-inward*.002,
-                 contact-inward*.002 + np.array([0., 0., .05]))
+        goals = grasp_waypoint_goals(contact, inward, self.standoff_m)
         fits = []
         attempts = []
         seed = self.qpos.copy()
@@ -193,7 +207,9 @@ class NativeGraspChecks:
             attempts.append(records)
             seed[self.ik.qadr] = fit.joints
         ik_pass = all(f.error_m <= .004 and f.axis_error_rad <= math.radians(10.) for f in fits)
-        detail = {'ik_errors_m': [f.error_m for f in fits],
+        detail = {'goals_world': [g.tolist() for g in goals],
+                  'standoff_m': self.standoff_m,
+                  'ik_errors_m': [f.error_m for f in fits],
                   'axis_errors_rad': [f.axis_error_rad for f in fits],
                   'ik_attempts': attempts,
                   'path': 'not_run', 'closure': 'not_run', 'lift': 'not_run'}
