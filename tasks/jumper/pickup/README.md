@@ -3235,3 +3235,49 @@ trajectory. Preserve all margins. Evidence directories:
 [Archived evidence](https://files.esson.au/f/jumper-edge-certificate-evidence-335fd24d.zip)
 and [replay video](https://files.esson.au/f/jumper-edge-certificate-d85b1062.mp4)
 are hosted until 2026-10-29.
+
+### Checked terminal compensation fallback — 2026-10-15
+
+One instrumented native CPU replay reproduced the edge-certificate baseline
+trace byte-for-byte. At its terminal rejection, the nominal refreshed IK fit
+(3.858 mm / 0.1293 rad residual) and nominal next-step corridor passed the
+actual object guard. The tracking-compensated endpoint failed with minimum
+distance -0.684 mm. Holding actual geometry but substituting the original
+estimated object pose made it pass at 1.744 mm. Estimated geometry with actual
+pose still failed at +0.577 mm, below the unchanged 1 mm margin. These private
+kinematic counterfactuals isolate compensation and pose mismatch at this state;
+they are not physical success or proof that sensing is generally adequate.
+
+`refreshed_approach_target` now accepts an optional full-command clearance
+callback. It tries the compensated command, then at most one distinct nominal
+command; each needs its own measured-to-command path clearance. If neither
+passes, it returns `None`. Exceptions propagate and non-boolean verdicts reject.
+The callback gets a copy so it cannot mutate the emitted command. Existing
+callers without the callback retain their behaviour. This uses the existing
+controller with an injected clearance policy, not a second IK authority.
+
+External BDD `/tmp/jumper_checked_refresh_bdd.py`: nine failures before the new
+contract existed; after implementation, 84 focused checks passed in 1.11 s,
+including trim/composition, refresh, recovery and shared clearance/manipulation.
+No full-suite/Ruff pass is claimed. Tests remain external per task-test policy.
+
+The opt-in `/tmp/jumper_math_checked_refresh.py` replay used seed 970001, one
+native CPU world/thread, unchanged 40 simulated-second / 210 process-second
+caps, with no retries or training. The first 669 rows match the baseline; its
+first fallback matches the frozen nominal command numerically. Sources match
+their frozen hashes. It completed exit 0 after 1119 steps (22.38 simulated
+seconds; 63.91 controller wall seconds), stopping at measured alignment timeout.
+Terminal point error was 4.829 mm (closing requires 4 mm), axis error 0.1257 rad,
+maximum foot drift 7.563 mm. No closure/lift/pickup, loaded score zero. Rejected
+candidate pairs in the report include optional corrections that were never
+emitted; they must not be counted as executed collisions. Video inspected.
+
+Decision: retain the checked fallback; keep every margin and phase deadline.
+Next inspect residual tracking and clearance-limited correction at the final
+state, not extend time or lower the closing bar. The nine-location physical
+matrix remains pending a qualified centre grasp. Evidence directories under
+the pickup log root: `terminal-comparison-2026-10-15` and
+`checked-refresh-2026-10-15`.
+[Evidence](https://files.esson.au/f/jumper-checked-refresh-evidence-fc1e6c57.zip)
+and [video](https://files.esson.au/f/jumper-checked-refresh-d0985c04.mp4)
+are hosted until 2026-10-29.
