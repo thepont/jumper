@@ -255,6 +255,7 @@ class NativeGraspChecks:
                 lift = self._path(fits[1].joints, fits[2].joints, jaw=selected_jaw, carry_from=carry)
                 lift_pass = lift.found
                 detail['lift'] = lift.reason
+                detail['lift_waypoints'] = [q.tolist() for q in lift.waypoints]
                 if not lift_pass:
                     reasons.append('sampled rigid-carriage lift corridor rejected')
             else:
