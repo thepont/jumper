@@ -37,14 +37,57 @@ latching. The 250ms budget used in tests is a test fixture, not a robot safety
 recommendation. *The Art of Unit Testing*, section 1.6, informed the small
 red/green steps; no book content or assets are included in the repository.
 
-This API is not yet wired to a perception stream, Python/WASM binding or hardware
-dispatch. It does not implement obstacle detection, target tracking, re-planning,
-braking-distance guarantees or successful pickup. Next integrate a scene producer
-and this same Rust authority into the simulation host, test changed-target,
-new-obstacle and occlusion events, then assess a library-backed local controller.
+This API is not yet wired to a perception stream, WASM binding or hardware
+dispatch. The Python boundary and injected-scene integration tests are described
+below. It does not implement obstacle detection, target tracking, re-planning,
+braking-distance guarantees or successful pickup. Next integrate a real scene
+producer into the pickup simulation host, then assess a library-backed local controller.
 Reuse the existing OpenRR `k` FK adapter and collision checker; do not build a new
 robot model or collision engine. Physics, safety margins and saved policies remain
 unchanged.
+
+### Python boundary and simulated dispatch
+
+The existing PyO3 extension now exports:
+
+```python
+motion = mjrl_fsm.SceneMotion(points, lower, upper, rate, timeout,
+                             revision, max_age_ns)
+candidate = motion.step(current, measured, dt,
+                        (revision, observed_at_ns), now_ns, corridor_clear)
+```
+
+Joint values and `dt` retain `JointMotion`'s radians/seconds contract. Scene
+timestamps use integer nanoseconds in one monotonic epoch; scene identity and
+times reject booleans, negative values, floats and overflow. The scene packet is
+a two-element tuple. Only a successful return may be dispatched. `arrived` is
+false after rejection. A malformed packet, failed conversion, invalid feedback
+or geometry callback error consumes the binding's motion, so a later good packet
+cannot silently resume it. Callback results must be actual Python booleans.
+The wrapper delegates scene validity and motion computation to the Rust core;
+it does not recreate either algorithm in Python.
+
+Measured locally, 2026-10-15: 15 new binding cases failed first because the export
+was absent, then passed. Three further MuJoCo integration cases start a single
+hinge moving through the real extension, inject target-revision, obstacle-revision
+or expired-coverage events, and verify that rejection leaves the actuator's prior
+target unchanged without invoking obsolete geometry checks. The obstacle fixture
+moves a mocap obstacle; events are injected, not detected by a camera. The fixture
+uses MuJoCo distance queries and `implicitfast` for its small-inertia servo:
+explicit integration at the initial test gains was unstable before the event.
+This changed only the synthetic test fixture, not the Jumper model or margins.
+
+Validation: 33 kinematics/scene-boundary tests plus 14 app-play regressions passed;
+the legacy FSM extension module skipped because its exported tripod policy is
+absent (47 passed, 1 skipped, 38 existing warnings). All 199 Rust core tests and
+the host web-feature check passed. Ruff is unavailable in this environment.
+Clippy remains blocked by the unchanged `control.rs:327` `never_loop` error;
+PyO3-generated conversion warnings also occur on the new binding as on existing
+bindings. No clean lint or full-suite result is claimed.
+These are command-dispatch tests, not measurements of braking distance, dynamic
+obstacle avoidance, whole-robot grasp completion or the full application using
+live scene updates. Existing app consumers remain unchanged until a scene
+producer supplies the documented coverage and revision guarantees.
 
 ## First slice: non-actuating forward kinematics
 

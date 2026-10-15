@@ -704,8 +704,94 @@ impl PyJointMotion {
     }
 }
 
+/// Scene-bound proposals using the same Rust motion authority as other hosts.
+#[pyclass(name = "SceneMotion")]
+pub struct PySceneMotion(Option<crate::joint_motion::SceneMotion>);
+
+fn scene_integer(value: &Bound<'_, PyAny>) -> PyResult<u64> {
+    if !value.is_instance_of::<pyo3::types::PyInt>()
+        || value.is_instance_of::<pyo3::types::PyBool>()
+    {
+        return Err(err("scene identity and times must be unsigned integers"));
+    }
+    value.extract::<u64>()
+}
+
+#[pymethods]
+impl PySceneMotion {
+    #[new]
+    fn new(
+        points: Vec<Vec<f64>>,
+        lower: Vec<f64>,
+        upper: Vec<f64>,
+        rate: f64,
+        timeout: f64,
+        revision: &Bound<'_, PyAny>,
+        max_age_ns: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let motion = crate::joint_motion::JointMotion::new(points, lower, upper, rate, timeout)
+            .map_err(err)?;
+        let guarded = crate::joint_motion::SceneMotion::new(
+            motion,
+            scene_integer(revision)?,
+            std::time::Duration::from_nanos(scene_integer(max_age_ns)?),
+        )
+        .map_err(err)?;
+        Ok(Self(Some(guarded)))
+    }
+
+    #[getter]
+    fn arrived(&self) -> bool {
+        self.0.as_ref().is_some_and(|motion| motion.arrived())
+    }
+
+    /// scene = (revision, observed_at_ns); now_ns shares its monotonic epoch.
+    /// Decode inside the stop latch so malformed packets cannot permit resume.
+    fn step(
+        &mut self,
+        current: &Bound<'_, PyAny>,
+        measured: &Bound<'_, PyAny>,
+        dt: &Bound<'_, PyAny>,
+        scene: &Bound<'_, PyAny>,
+        now_ns: &Bound<'_, PyAny>,
+        guard: PyObject,
+    ) -> PyResult<Vec<f64>> {
+        let mut motion = self.0.take().ok_or_else(|| err("motion stopped"))?;
+        let py = current.py();
+        let packet = scene.downcast::<pyo3::types::PyTuple>()?;
+        if packet.len() != 2 {
+            return Err(err("scene must contain revision and observation time"));
+        }
+        let stamp = crate::joint_motion::SceneStamp {
+            revision: scene_integer(&packet.get_item(0)?)?,
+            observed_at: std::time::Duration::from_nanos(scene_integer(&packet.get_item(1)?)?),
+        };
+        let next = motion
+            .step(
+                &current.extract::<Vec<f64>>()?,
+                &measured.extract::<Vec<f64>>()?,
+                dt.extract::<f64>()?,
+                std::time::Duration::from_nanos(scene_integer(now_ns)?),
+                stamp,
+                |candidate| {
+                    let result = guard
+                        .call1(py, (candidate.to_vec(),))
+                        .map_err(|e| e.to_string())?;
+                    if !result.bind(py).is_instance_of::<pyo3::types::PyBool>() {
+                        return Err("motion guard must return a boolean".into());
+                    }
+                    result.extract::<bool>(py).map_err(|e| e.to_string())
+                },
+            )
+            .map_err(err)?;
+        self.0 = Some(motion);
+        Ok(next)
+    }
+}
+
 #[pymodule]
 fn mjrl_fsm(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PySceneMotion>()?;
     m.add_class::<PyJointMotion>()?;
     m.add_class::<PySerialArm>()?;
     m.add_class::<PyReport>()?;

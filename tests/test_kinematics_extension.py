@@ -98,6 +98,116 @@ def test_motion_guard_requires_a_real_boolean(extension, verdict):
         motion.step([0.], [0.], .02, lambda _: True)
 
 
+def scene_motion(extension):
+    return extension.SceneMotion([[1., .5]], [-2., -2.], [2., 2.], .45, 2., 7, 250_000_000)
+
+
+def test_fresh_scene_binding_preserves_motion_and_checked_candidate(extension):
+    motion = scene_motion(extension)
+    seen = []
+    q = motion.step([0., 0.], [0., 0.], .02, (7, 100_000_000), 350_000_000,
+                    lambda candidate: seen.append(candidate) or True)
+    assert q == pytest.approx([.009, .0045])
+    assert seen == [q]
+    assert not motion.arrived
+
+
+@pytest.mark.parametrize("scene,now", [
+    ((8, 100_000_000), 100_000_000),  # target/obstacle revision changed
+    ((7, 100_000_000), 350_000_001),  # coverage expired
+    ((7, 100_000_001), 100_000_000),  # future packet
+    (None, 100_000_000), ((7,), 100_000_000),
+    ((True, 100_000_000), 100_000_000), ((7, -1), 100_000_000),
+    ((7, 100_000_000), float("nan")), ((7, 100_000_000), True),
+])
+def test_rejected_scene_packet_cannot_resume_or_reach_geometry(extension, scene, now):
+    motion = scene_motion(extension)
+    seen = []
+    for packet, clock in [(scene, now), ((7, 120_000_000), 120_000_000)]:
+        with pytest.raises((ValueError, TypeError, OverflowError)):
+            motion.step([0., 0.], [0., 0.], .02, packet, clock,
+                        lambda candidate: seen.append(candidate) or True)
+    assert seen == []
+    assert not motion.arrived
+
+
+@pytest.mark.parametrize("verdict", [None, 1, False, "exception"])
+def test_scene_geometry_failure_cannot_resume(extension, verdict):
+    motion = scene_motion(extension)
+
+    def guard(_):
+        if verdict == "exception":
+            raise RuntimeError("geometry unavailable")
+        return verdict
+
+    with pytest.raises(ValueError):
+        motion.step([0., 0.], [0., 0.], .02, (7, 100), 100, guard)
+    with pytest.raises(ValueError):
+        motion.step([0., 0.], [0., 0.], .02, (7, 120), 120, lambda _: True)
+
+
+def test_malformed_joint_packet_latches_scene_binding_stop(extension):
+    motion = scene_motion(extension)
+    with pytest.raises((ValueError, TypeError)):
+        motion.step(None, [0., 0.], .02, (7, 100), 100, lambda _: True)
+    with pytest.raises(ValueError):
+        motion.step([0., 0.], [0., 0.], .02, (7, 120), 120, lambda _: True)
+
+
+@pytest.mark.parametrize("event", ["target_moved", "obstacle_entered", "coverage_lost"])
+def test_scene_event_prevents_next_simulated_actuator_dispatch(extension, event):
+    """Injected perception events, real MuJoCo actuator; not a camera detector test."""
+    mujoco = pytest.importorskip("mujoco")
+    model = mujoco.MjModel.from_xml_string('''
+      <mujoco><option timestep=".002" gravity="0 0 0" integrator="implicitfast"/>
+        <worldbody>
+          <body><joint name="hinge" type="hinge" axis="0 0 1"/>
+            <geom name="arm" type="capsule" fromto="0 0 0 .2 0 0" size=".01"/>
+          </body>
+          <body name="obstacle" mocap="true" pos="1 1 1">
+            <geom name="obstacle_geom" type="sphere" size=".03"/>
+          </body>
+        </worldbody>
+        <actuator><position joint="hinge" kp="20" kv="2"/></actuator>
+      </mujoco>''')
+    data, query = mujoco.MjData(model), mujoco.MjData(model)
+    motion = extension.SceneMotion([[.3]], [-1.], [1.], .45, 2., 7, 250_000_000)
+    checks = []
+
+    def clear(candidate):
+        checks.append(candidate)
+        query.qpos[:] = candidate
+        query.mocap_pos[:] = data.mocap_pos
+        mujoco.mj_forward(model, query)
+        return mujoco.mj_geomDistance(model, query, model.geom("arm").id,
+                                     model.geom("obstacle_geom").id, 2., None) > .001
+
+    # Positive control: accepted proposals reach the actuator and produce motion.
+    for tick in range(10):
+        now = tick * 20_000_000
+        data.ctrl[:] = motion.step(data.ctrl.tolist(), data.qpos.tolist(), .02,
+                                   (7, now), now, clear)
+        for _ in range(10):
+            mujoco.mj_step(model, data)
+    assert data.qpos[0] > 0
+    previous = data.ctrl.copy()
+    assert len(checks) == 10
+    if event == "obstacle_entered":
+        data.mocap_pos[0] = [.15, .02, 0]
+        mujoco.mj_forward(model, data)
+    scene = (7, 0) if event == "coverage_lost" else (8, 300_000_000)
+    # Assignment occurs only after successful proposal; rejection leaves the
+    # prior target held. This is not evidence of zero mechanical stopping distance.
+    with pytest.raises(ValueError):
+        data.ctrl[:] = motion.step(data.ctrl.tolist(), data.qpos.tolist(), .02,
+                                   scene, 300_000_000, clear)
+    assert data.ctrl == pytest.approx(previous)
+    assert len(checks) == 10
+    with pytest.raises(ValueError):
+        motion.step(data.ctrl.tolist(), data.qpos.tolist(), .02,
+                    (7, 320_000_000), 320_000_000, clear)
+
+
 @pytest.mark.parametrize("positions", [[.2, -.1], [.7, -.6], [-1.1, .8]])
 def test_compiled_mujoco_chain_matches_rust_with_anchors_and_references(extension, positions):
     """Independent FK oracle; asymmetry catches reversed order and dropped origins."""
