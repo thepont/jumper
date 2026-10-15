@@ -211,6 +211,10 @@ class NativeGraspChecks:
             fits.append(fit)
             attempts.append(records)
             seed[self.ik.qadr] = fit.joints
+        return self._assess_fits(goals, fits, attempts)
+
+    def _assess_fits(self, goals, fits, attempts):
+        """Check one complete IK route with the existing shared query budget."""
         ik_pass = all(f.error_m <= .004 and f.axis_error_rad <= math.radians(10.) for f in fits)
         detail = {'goals_world': [g.tolist() for g in goals],
                   'standoff_m': self.standoff_m,
