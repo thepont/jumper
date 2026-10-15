@@ -71,7 +71,12 @@ def fit_grasp_waypoint(ik, qpos, goal, inward, *, alternate_starts=True):
 
 
 class NativeGraspChecks:
-    def __init__(self, env, estimate, *, standoff_m=.002):
+    def __init__(self, env, estimate, *, standoff_m=.002, axis_scale_m=.06):
+        # Opt-in IK trade-off, not an acceptance tolerance. The same IK instance
+        # supplies every planned waypoint and subsequent terminal refresh.
+        if (type(axis_scale_m) not in (int, float) or not math.isfinite(axis_scale_m) or
+                not .01 <= axis_scale_m <= .1):
+            raise ValueError('axis residual scale must be finite and within 0.01..0.1 m')
         grasp_waypoint_goals([0., 0., 0.], [0., 1., 0.], standoff_m)
         self.standoff_m = standoff_m
         if (not isinstance(estimate, ObjectPose) or estimate.orientation_wxyz is None or
@@ -144,7 +149,7 @@ class NativeGraspChecks:
         self.local_axis = equations[chosen, :3].copy()
         self.ik = PointIK(self.model, 'robot/LF_palm_link',
                           tuple(f'robot/LF_J{i}_joint' for i in range(4)),
-                          reference, local_axis=self.local_axis, axis_scale_m=.06)
+                          reference, local_axis=self.local_axis, axis_scale_m=axis_scale_m)
         self.jaw_adr = int(self.model.joint('robot/LF_J4_joint').qposadr[0])
         pairs = list(nonadjacent_arm_pairs(self.model))
         floors = [self.model.geom(g).name for g in range(self.model.ngeom)
@@ -209,6 +214,7 @@ class NativeGraspChecks:
         ik_pass = all(f.error_m <= .004 and f.axis_error_rad <= math.radians(10.) for f in fits)
         detail = {'goals_world': [g.tolist() for g in goals],
                   'standoff_m': self.standoff_m,
+                  'axis_scale_m': self.ik.axis_scale_m,
                   'ik_errors_m': [f.error_m for f in fits],
                   'axis_errors_rad': [f.axis_error_rad for f in fits],
                   'ik_attempts': attempts,
