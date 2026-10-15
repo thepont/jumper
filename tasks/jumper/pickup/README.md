@@ -8,6 +8,70 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Opt-in slower closing target — 2026-10-15
+
+After the user observed rapid premature closure and tipping, pickup now accepts
+`--finger-close-speed 0.5` (radians/second). The default is absent and retains
+historical behaviour. Supply this flag explicitly in a **fresh** run; no new
+training was launched for this change. Finite positive rates are accepted;
+booleans, zero, negative and nonfinite rates are rejected at configuration
+construction. This is a target-slew experiment, not a calibrated hardware limit.
+
+The existing `ClawActions` authority limits the emitted closing target after
+the existing squeeze limiter, every 5 ms physics substep, rather than every
+20 ms policy step. Mirrored claw signs are handled canonically. Opening is
+not slowed; partial resets restart only the selected world's target history
+from its measured joint angle. History stores the emitted squeezed target so
+stalled contact cannot accumulate hidden lead. No rewards, reversal penalties,
+arm rates, gains, collision guards, geometry or perception were changed.
+This does not gate premature closure or enforce a physical velocity ceiling:
+servo lag and momentum can make actual velocity exceed target slew.
+
+Checkpoint contracts include `finger_closing_target_slew_rad_s` only when
+enabled. Legacy mode retains its old contract. Changing the configured rate
+rejects an incompatible checkpoint **before loading model/optimizer weights**;
+do not silently reinterpret an old policy under slower action dynamics.
+
+A bounded native CPU comparison used one matched reset at seed 970001,
+standard SOAP, +/-2.5% size configuration and 2 mm position jitter. Both
+325-step (6.5-second) fixed-arm command runs completed without termination or
+truncation. They held open for 1.2 seconds, requested close for 4.5 seconds,
+then requested open for 0.8 seconds. Starting qpos fingerprints matched
+(`d634fc0f99be5f0380e9981048133431350135c2b3c8811c1b1c0987378ff031`).
+The original guards plus explicit mask-independent 1 mm self-clearance rejection
+remained enabled. This is not replay of a trained actor or a hardware safety test.
+
+| Measurement | Original | Closing-target limit 0.5 rad/s |
+|---|---:|---:|
+| Maximum emitted closing-target rate, 200 Hz | 89.8677 rad/s | 0.500011 rad/s |
+| Maximum observed closing velocity, sampled at 50 Hz | 17.3384 rad/s | 0.6595 rad/s |
+| Pinched control samples | 0 | 0 |
+
+The target-rate excess over 0.5 is floating-point accumulation error. The
+observed jaw speed is lower, but **neither run established a grip or pickup**.
+This isolates the speed-control change; it does not establish less tapping,
+better timing, central contact or a better learned policy. Timing and repeated
+opening/closing remain separate, untested interventions. The 0.5 value was
+chosen before this comparison; no parameter sweep or snapshot selection ran.
+
+Fourteen external behavioural controls failed first on the absent option;
+after implementation, sixteen passed, including a no-limit negative control
+and incompatible-checkpoint rejection. Eighty-six focused registry, layout,
+checkpoint, seam and native-determinism framework checks passed. Ruff's
+E4/E7/E9/F checks and whitespace checks passed; full Ruff still reports existing
+import ordering, line-length and style findings, and no full-suite pass is
+claimed. The first native probe stopped on an incorrect diagnostic field name
+before comparison; that probe was corrected to the existing `root_link_pos_w`
+authority, then the single complete matched comparison above was recorded.
+
+Durable working evidence is under
+`logs/jumper/jumper.pickup/slow-claw-2026-10-15/`: exact traces, logs,
+external controls and driver. These task-specific probes stay outside the
+framework test suite per `CLAUDE.md`. Existing policies, code and experiment
+artifacts remain preserved. The next learning experiment must explicitly opt
+into the new action contract and retain independent physical pickup metrics;
+that experiment is not started or selected by this change.
+
 ### Fresh 10,000-update Gemini run — 2026-10-15
 
 The user authorised a longer run on the faster machine after the 1,000-update
