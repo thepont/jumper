@@ -3283,6 +3283,40 @@ pending a qualified centre grasp. Evidence:
 and [video](https://files.esson.au/f/jumper-stable-trim-2f0dd76b.mp4)
 are hosted until 2026-10-29.
 
+### Experimental 5 mm measured closing gate — 2026-10-15
+
+User authorized separating the measured closing allowance (5 mm) from the
+unchanged planned IK acceptance (4 mm). `measured_grasp_alignment` is an opt-in
+predicate used by `/tmp/jumper_math_alignment_5mm.py`; historical drivers remain
+unchanged. Axis alignment stays 10 degrees, stable arrival stays ten samples /
+180 ms, and the 1 mm collision guards, pose freshness and pickup criteria remain.
+This is tolerance allocation, not an improvement to IK accuracy. Current grasp
+selection prefers the most central admitted reference among at most 18 proposals;
+it is not a globally optimal grasp search. A 2 mm planning goal is a proposed
+next feasibility check, not an implemented threshold or proven reachable target.
+
+External BDD `/tmp/jumper_alignment_5mm_bdd.py` first produced ten failures for
+the missing contract. Final combined boundary, invalid-input, dwell/guard,
+unchanged IK rejection, tracking and shared geometry checks: 108 passed in
+1.53 s. No full-suite or lint pass claimed.
+
+One native CPU development replay (seed 970001, one world/thread, 5 ms physics /
+20 ms control; maximum 40 simulated seconds, 180 controller wall seconds and
+210 process seconds plus 10 seconds cleanup) completed exit 0 after 713 steps
+(14.26 simulated seconds; 39.36 controller wall seconds). Reset fingerprint
+matches `stable-trim-2026-10-15`; trace is identical until step 684, when closure
+starts. Thirty closure steps executed (0.6 seconds), then the unchanged pose
+freshness guard stopped it with `pose or plan lost`. Final error was 4.661 mm /
+0.12644 rad; maximum foot drift 6.874 mm. No lift or pickup; loaded score zero.
+The 2 mm maximum floor clearance includes the initial fixture, not a lift.
+Rejected candidate pairs were not emitted commands. Frozen source hashes match.
+
+Decision: retain this as an experimental closing allowance, not a qualified
+controller. The position gate prevented closure in the baseline, but changing it
+does not solve the grasp: perception expires during closure. No retry, training,
+collision relaxation or hardware action was performed. Evidence and frozen
+driver: `logs/jumper/jumper.pickup/alignment-5mm-2026-10-15/`.
+
 ### Checked terminal compensation fallback — 2026-10-15
 
 One instrumented native CPU replay reproduced the edge-certificate baseline

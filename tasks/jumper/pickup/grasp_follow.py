@@ -5,6 +5,18 @@ import numpy as np
 from mjrl.manipulation import joint_segment_step
 
 
+def measured_grasp_alignment(position_error_m, axis_error_rad):
+    """Experimental closing gate: 5 mm measured error, unchanged 10-degree axis.
+
+    Planning still requires 4 mm. Caller must additionally require fresh sensing,
+    stable arrival and full-command clearance. Passing is not grip evidence.
+    """
+    if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
+           for value in (position_error_m, axis_error_rad)):
+        raise ValueError('alignment requires finite nonnegative position and angular errors')
+    return position_error_m <= .005 and axis_error_rad <= math.radians(10.)
+
+
 def grasp_finger_target(phase, current, opened, closed, loaded, dt):
     """Canonical LF angle: close only with permission; hold once loaded.
 
