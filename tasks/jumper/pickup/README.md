@@ -8,6 +8,65 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Checked open-claw approach and its remaining limits — 2026-10-15
+
+The adapter's previous 64-check per-segment cap could reject a clear long edge
+before checking it completely. On the preserved repositioned fixture, candidate
+1's initial direct corridor requires **69 checks**, followed by ten checks for
+the next segment. With up to 64 RRT samples and 512 per-segment callback checks,
+it passes approach, frozen closure and sampled rigid-carriage lift admission.
+The unchanged global limit remains 512 actual combined geometry queries. Later
+candidates may exhaust that shared budget; the admitted earlier candidate's
+completed checks remain recorded. This measured route is direct, not a newly
+discovered detour. A separate BDD obstacle control exercises detour search.
+Reports now preserve approach waypoints and segment query counts.
+
+`grasp_follow.ApproachFollower` advances waypoints from measured joints and
+emitted targets, using existing `joint_segment_step` at 0.45 rad/s. Joint arrival
+alone never permits closing: the caller's existing `GripGate` still requires
+4 mm point accuracy, 10-degree signed pad alignment and stable arrival.
+`PlanPoseGate` holds the arm target when a fresh estimated object position differs
+from the plan by more than 8 mm. A new consistent packet can resume motion;
+duplicate packets cannot undo a hold, and lack of confirmation expires after
+250 ms. These are prototype thresholds, not calibrated sensing uncertainty.
+Position packets are reprojected with current measured base pose. This adapter
+does not replan orientation/shape or solve arbitrary moving-object tracking.
+
+Three bounded physical development pilots preserve their individual evidence:
+
+- `math-grasp-approach-2026-10-15`: stopped at step 369 before the first arm
+  approach command. Independent saved-state checks identify RF forearm/finger
+  separation **0.995986 mm**, below the unchanged 1 mm guard, in both shared and
+  per-world models. This is a clearance-margin violation, not measured penetration.
+- `math-grasp-approach-fixed-wrist-2026-10-15`: support translation uses J0..J2
+  through opt-in `support_joint_names`, preserving RF wrist/finger targets.
+  It advances the left arm and stops at step 418 on an estimated position shift
+  >8 mm. No clearance rejection occurred. Comparing saved object free-joint
+  translations with the earlier fixture gives changes below 0.04 mm per object;
+  this supports investigating estimate noise but is not a full contact history.
+- `math-grasp-approach-pose-hold-2026-10-15`: adds the hold/confirmation gate,
+  completes **1,078 control steps / 21.56 simulated seconds**, with 709 recorded
+  approach samples and 20 hold samples. Contact-reference error decreases from
+  **74.053 mm to 5.969 mm** at stop; signed axis error is **7.194 degrees**.
+  It stops when pose confirmation expires, before measured arrival qualifies.
+  Maximum recorded support-foot drift is **7.478 mm**, below the 8 mm guard.
+  No clearance rejection occurred in this pilot. Wall time was 68.07 seconds.
+
+All pilots keep the claw open and report **no closure and no pickup**. The last
+pilot's six-millimetre final error is still outside the four-millimetre gate.
+Do not describe geometric admission as grasp success or these sequential
+one-seed development trials as independent statistical improvement. The original
+collision pair exclusions and simulator-only safety/contact feedback limitations
+remain. The next unresolved work is measured final-position tracking and robust
+pose confirmation before physical closure; guard thresholds were not weakened.
+
+TDD: the detour control failed under the old cap; the new follower, support-map
+and pose-hold APIs were observed missing before implementation. The retained
+old-budget control also demonstrates clear-edge rejection. **135 focused checks
+passed**, 35 warnings, 9.03 seconds. Ruff passed on the three changed task modules;
+no full-suite claim is made. External controls, saved-state audit and this review
+are under `math-grasp-approach-review-2026-10-15/` alongside the pilot bundles.
+
 ### Physical support-leg preparation for maths grasping — 2026-10-15
 
 `grasp_reposition.SupportShift` is a task-owned State gate for one bounded
