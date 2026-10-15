@@ -8,6 +8,71 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Multi-location checks and stand-off investigation — 2026-10-15
+
+The user requested repeatable TDD/BDD coverage beyond the single object fixture.
+The preserved external `jumper_grasp_location_matrix_bdd.py` adds **94 passing
+unit/behavioural cases**: nine XY positions (X=0.20/0.25/0.30 m,
+Y=-0.04/0.06/0.16 m), three yaws (-30/0/+30 degrees), and three scales
+(0.975/1/1.025), giving 81 combinations, plus nine stale-pose and four failed-stage
+rejection cases. An analytically tapered hull checks surface placement and signed
+normals independently of the production half-space calculation. These tests
+check coordinate/waypoint contracts, not reachability or pickup. They supplement
+the earlier nominal-box, rounded-SOAP native and sensor-delay checks; they are
+not 81 physical successes. Task probes stay outside framework `tests/`, per
+repository policy, and are retained in the evidence pack with runnable sources.
+
+A separate zero-physics native matrix uses the actual SOAP planning adapter,
+the saved support posture, original 2 mm stand-off and nine estimated positions
+offset by -10/0/+10 mm in each base-frame X/Y axis. Each case has the unchanged
+512 geometry-query budget and 18 proposals. All nine completed in 34.48 s on
+local native CPU; live state was unchanged. Only offsets (0,0) and (0,+10 mm)
+produced a fully admitted approach/closure/lift plan: **2/9 planning admissions,
+not pickups**. All three +10 mm X cases failed IK admission. Other rejections
+include path/closure checks and exhausted search budgets; rejection of a bounded
+search is not proof of physical impossibility. This is a development matrix,
+not a held-out statistical evaluation. Physical approach/closure/lift at these
+nine positions and rotated/size-varied physical trials remain outstanding.
+
+Two preceding changes were tested separately:
+
+- Tracking trim must operate on the **nominal IK fit before slew limiting**.
+  Applying it to an already rate-limited intermediate target can create outward
+  command drift under constant lag. The retained regression demonstrates the
+  old composition failing and 30 corrected iterations remaining bounded. The
+  corrected physical replay nevertheless stops at the same step 613 and same
+  palm-clearance rejection as before: this defect did not cause that particular
+  failure. No closing or pickup occurred.
+- `NativeGraspChecks(standoff_m=...)` now checks an explicit 2..10 mm stand-off
+  through approach, closure and lift, and records world-frame goals. Default
+  remains 2 mm. A private saved-state audit found nominal fitted endpoints clear
+  at additional stand-offs of 0/2/4 mm, but this was not closure evidence. The
+  bounded **4 mm** physical preparation trial consequently ran the complete
+  planner before arm motion: candidate 1 passed IK and approach but failed the
+  frozen closure screen. No candidate was admitted; lift was not checked for
+  that candidate. It stopped after 368 control steps / 7.36 simulated seconds,
+  20.91 s wall, with no runtime clearance rejection and no arm approach, closure
+  or pickup. Moving the reference outward alone is not a demonstrated fix.
+
+The stop is not an episode-timeout issue: the guard/plan veto occurs before the
+available time expires. The next investigation must jointly satisfy grasp
+geometry, tracking-command clearance and physical closure across the recorded
+locations. Do not simply extend the video, relax clearance or report geometric
+admission as grasp success. Sensor/physics/reward settings and old policies are
+unchanged; no hardware actuation occurred.
+
+The stand-off and composition controls were observed red before implementation.
+The broader existing-contract location matrix passed on first execution.
+**162 focused checks plus 94 location checks passed** (256 total; 35 warnings
+per invocation); Ruff and whitespace checks passed. No full-suite claim.
+Evidence: `math-grasp-trim-order-2026-10-15/`, `math-grasp-standoff-2026-10-15/`
+and `math-grasp-standoff-review-2026-10-15/`. To replay the unit matrix using the
+editable project environment:
+
+```sh
+.venv/bin/python -m pytest -q logs/jumper/jumper.pickup/math-grasp-standoff-review-2026-10-15/verification/jumper_grasp_location_matrix_bdd.py
+```
+
 ### Terminal approach correction: tracking and clearance — 2026-10-15
 
 Local native CPU, one world, seed 970001, MuJoCo 3.11.0. A zero-physics
