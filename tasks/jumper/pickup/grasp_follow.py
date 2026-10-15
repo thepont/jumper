@@ -5,6 +5,23 @@ import numpy as np
 from mjrl.manipulation import joint_segment_step
 
 
+def grasp_finger_target(phase, current, opened, closed, loaded, dt):
+    """Canonical LF angle: close only with permission; hold once loaded.
+
+    Caller owns phase transitions, contact evidence and full-command clearance.
+    This 0.5 rad/s target bound supplements, not replaces, the squeeze limiter.
+    """
+    from .grasp_advisor import Phase
+    if (not isinstance(phase, Phase) or type(loaded) is not bool or
+            any(type(x) not in (int, float) or not math.isfinite(x)
+                for x in (current, opened, closed, dt)) or
+            not opened <= current <= closed or opened >= closed or not 0 < dt <= .02):
+        raise ValueError('finger command needs a phase, bounded LF angle, load flag and valid dt')
+    if phase == Phase.CLOSE and not loaded:
+        return min(closed, current+.5*dt)
+    return current
+
+
 def tracking_trim(desired, current_targets, measured, lower, upper, dt):
     """Estimate steady servo lag without integrating it; caller checks clearance.
 
