@@ -3283,6 +3283,50 @@ pending a qualified centre grasp. Evidence:
 and [video](https://files.esson.au/f/jumper-stable-trim-2f0dd76b.mp4)
 are hosted until 2026-10-29.
 
+### Open-arm preparation feasibility — 2026-10-15
+
+Added `plan_arm_preparation`, composing the existing PointIK and bounded joint
+path planner through a full-pose clearance callback. It preserves non-arm state,
+requires the existing 4 mm / 10-degree IK limits, samples at 0.009 rad with
+64 search samples / 512 geometry queries, and returns no executable path after
+rejected IK/clearance. Geometry exceptions propagate and non-boolean verdicts
+reject. No live poses are written. External BDD
+`/tmp/jumper_arm_preparation_bdd.py`: seven failures before implementation;
+expanded mapping/mutation checks plus prior focused suites finished 194 passed,
+35 upstream Torch warnings, 5.13 s. No full-suite/lint claim.
+
+The opt-in `/tmp/jumper_math_arm_preparation.py` candidate retracts the open claw
+20 mm and raises it 30 mm in the measured base frame after five-foot settling.
+It preserves the original claw axis, checks insert/object and robot clearance,
+requires ten measured-arrival samples before starting support shift, and bounds
+arm motion to six seconds. Support, foot drift, tilt and each complete command
+corridor remain guarded. The original support settling clock starts only after
+arm preparation; total 40 simulated-second / 180 controller-wall-second /
+210 process-second plus 10-second cleanup caps remain.
+
+One native CPU replay (seed 970001; one world/thread, 5 ms physics / 20 ms control)
+completed exit 0 at 59 steps, 1.18 simulated seconds / 1.96 controller wall
+seconds. Preparation IK rejected before any preparation command or body shift.
+No approach, closing, lift or pickup; no executable path or geometry queries.
+The reset fingerprint matches the previous replay. This is an honest rejected
+candidate, not successful preparation or evidence that all preparation is
+impossible.
+
+A private saved-state diagnostic took zero physics/control steps. With original
+axis preservation, position residual was 9.912 mm and angular residual
+0.25198 rad (14.44 degrees). Position-only IK reached the target to numerical
+precision but rotated the original axis by 1.75595 rad (100.61 degrees). Neither
+result certifies collision-free motion or support. The first diagnostic invocation
+rejected use of an axis-configured IK without an orientation constraint; the
+corrected invocation constructed the existing position-only PointIK variant.
+No physical replay was retried or source changed under its worker.
+
+Decision: retain the checked preparation interface, not this rejected target as
+a working recipe. Next select a reachable, clearance-checked preparation pose
+with bounded orientation change; do not simply remove orientation constraints
+or relax collision limits. Evidence and frozen driver:
+`logs/jumper/jumper.pickup/arm-preparation-2026-10-15/`.
+
 ### Phase-specific insert clearance — 2026-10-15
 
 The approach planner previously used the same non-insert object clearance as

@@ -12,7 +12,7 @@ from itertools import product
 import mujoco
 import numpy as np
 from mjrl.clearance import GeometryClearance
-from mjrl.manipulation import IKResult, PointIK, plan_joint_path
+from mjrl.manipulation import IKResult, JointPathResult, PointIK, plan_joint_path
 from scipy.spatial import ConvexHull
 from scipy.spatial.transform import Rotation
 
@@ -71,6 +71,42 @@ def fit_grasp_waypoint(ik, qpos, goal, inward, *, alternate_starts=True):
     for index, record in enumerate(records):
         record['selected'] = index == selected
     return fits[selected], records
+
+
+def plan_arm_preparation(ik, qpos, goal, inward, clear):
+    """One bounded open-arm preparation via existing IK/path authorities.
+
+    The callback must check complete poses, including insert/object clearance.
+    No live state is written. Caller must verify measured arrival, support and
+    each actual command corridor before starting any body repositioning.
+    """
+    pose = np.asarray(qpos, dtype=float).copy()
+    goal, inward = np.asarray(goal, dtype=float), np.asarray(inward, dtype=float)
+    addresses = np.asarray(ik.qadr)
+    if (pose.ndim != 1 or not np.isfinite(pose).all() or
+            goal.shape != (3,) or inward.shape != (3,) or
+            not np.isfinite(goal).all() or not np.isfinite(inward).all() or
+            abs(np.linalg.norm(inward)-1.) > 1e-6 or not callable(clear) or
+            addresses.shape != (4,) or not np.issubdtype(addresses.dtype, np.integer) or
+            len(set(addresses)) != 4 or (addresses < 0).any() or
+            (addresses >= len(pose)).any()):
+        raise ValueError('preparation requires finite pose/goal, unit axis and four joint addresses')
+    fit = ik.solve(pose.copy(), goal, axis_target=inward)
+    if (not math.isfinite(fit.error_m) or not 0 <= fit.error_m <= .004 or
+            fit.axis_error_rad is None or not math.isfinite(fit.axis_error_rad) or
+            not 0 <= fit.axis_error_rad <= math.radians(10.)):
+        return JointPathResult(False, (), 0, 'preparation IK rejected')
+
+    def valid(joints):
+        candidate = pose.copy()
+        candidate[addresses] = joints
+        verdict = clear(candidate)
+        if type(verdict) is not bool:
+            raise ValueError('preparation clearance must return a boolean')
+        return verdict
+
+    return plan_joint_path(pose[addresses], fit.joints, ik.lower, ik.upper, valid,
+                           max_samples=64, max_checks=512, resolution_rad=.009)
 
 
 class NativeGraspChecks:
