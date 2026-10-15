@@ -824,6 +824,61 @@ claim. Final checkpoint SHA-256 values are
 (30 seconds) and
 `18f8c7c82b3405e125c6881aee604399ab421b7e31668751392b6480a0cbbdc4`
 (60 seconds).
+
+### Dynamic-scene gap and bounded replanning probe — 2026-10-15
+
+Following preparation recovery, the preserved-state candidate-3 check failed
+open-claw approach at 2 mm nominal stand-off. Reducing axis weighting from 0.06
+to 0.03 m did not repair clearance. A separate 4 mm stand-off check with the
+original 0.06 m weight passed approach, closure and lift screening; this changes
+the proposed target, not any acceptance/safety limit. It is not a new default.
+Its one physical centre-case replay on music-room started approach, then stopped
+after 633 steps when the next estimated object position was 11.095 mm from the
+original plan (goal shift 10.926 mm, rotation 4.689 degrees). An instrumented
+replay reproduced the 633-step stop. These are estimated changes, not proof of
+physical object motion; synthetic perception has noise and delay.
+
+A separate external prototype permitted at most two pre-contact replans inside
+the original 40-second simulation/180-second wall limits. It holds the open-claw
+servo targets only after checking the measured-to-held corridor, discards the
+old route, and reruns full plan admission from the latest state/estimate. It
+cannot replan during closure/contact, from stale/future/reused packets, or extend
+the episode deadline. Nine external permission checks were red then green.
+One centre-case replay exercised one hold/replan at step 634; no replacement
+plan passed every gate, so it stopped. Maximum support drift was 4.762 mm.
+There were **zero closures, lifts or pickups**. The raw report's
+`approach_started=false` describes the discarded active follower at exit;
+`plan_history` and the trace record the earlier admitted approach. This scratch
+prototype is not production dynamic tracking, a real-camera system, or a Rust
+grasp controller. Failed candidates and all previous reports are retained.
+
+The next acceptance scope includes movement of the target AND newly arriving
+obstacles, not only independent static reset locations. Before dynamic-world
+claims, tests must cover timestamp/frame consistency, noisy stationary targets,
+moving targets, obstacle intrusion/fall, target slip/drop, occlusion, stale
+packets, unreachable updates, replanning failure and bounded stopping. A
+collision check of the old scene is not evidence that the next motion is safe
+in a changed scene. Stopping distance and sensing/control latency must enter
+the clearance contract; the experimental 1 mm static margin is not hardware
+certification. Retreat requires its own checked path, not a blind reversal.
+
+Primary references checked on 2026-10-15:
+[MoveIt Hybrid Planning](https://moveit.picknik.ai/main/doc/concepts/hybrid_planning/hybrid_planning.html)
+combines local adaptation with global replanning;
+[MoveIt Servo](https://moveit.picknik.ai/main/doc/examples/realtime_servo/realtime_servo_tutorial.html)
+provides feedback motion with collision/singularity/limit handling;
+[Planning Scene Monitor](https://moveit.picknik.ai/main/doc/examples/planning_scene_monitor/planning_scene_monitor_tutorial.html)
+updates robot, collision-object and occupancy state;
+[ViSP](https://github.com/lagadic/visp) supplies visual tracking/servoing tools.
+These are architecture/library references, not dependencies installed or
+validated for Jumper. Existing checking Strategies and phase State remain the
+authorities; a real sensor Adapter and scene-update/plan-invalidation boundary
+are still missing. No new NN training or hardware actuation occurred.
+
+Evidence: `grasp-completion-standoff-2026-10-15`,
+`grasp-tracking-observe-2026-10-15`, and `grasp-replan-trial-2026-10-15`
+under `logs/jumper/jumper.pickup/`, including external driver/control copies.
+
 ### Preparation branch recovery — 2026-10-15
 
 On music-room/native CPU, the unchanged preparation replay reproduced the
