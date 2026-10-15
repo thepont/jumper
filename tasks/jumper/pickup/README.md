@@ -3119,3 +3119,31 @@ Frozen source, plan, trace, report, review and video:
 [Evidence](https://files.esson.au/f/jumper-waypoint-corner-evidence-f3113b0c.zip)
 and [video](https://files.esson.au/f/jumper-waypoint-corner-475a9e7f.mp4)
 are hosted until 2026-10-29. The external regression is included in the archive.
+
+### Pose-expiry diagnostic — 2026-10-15
+
+Twenty external frame/packet/timing checks passed unchanged: these are
+characterisation evidence, not a red-first production fix. Three observer
+contract cases first failed collection because the observer was absent, then
+passed; combined result: 23 passed, 35 warnings, 2.65 s. The external decorator
+delegates sensor estimation once, preserves its return value and records cached
+packets, including the terminal call. No controller or sensor code was changed.
+
+One local native-CPU replay used the identical seed 970001, one world/thread,
+40 simulated-second cap and 210 wall-second process cap, with no retries or
+training. It stopped again at step 468 / 9.36 s, before closure or pickup.
+The original and observed traces are byte-identical; final qpos/qvel match.
+The final packet was valid, captured at 9.30000019 s, and differed from the
+planning origin by 8.0413 mm. It followed a 9.8475 mm discrepancy. Both exceed
+the unchanged 8 mm gate, so neither renewed the last accepted capture at
+9.10000038 s; this was older than 250 ms at the terminal decision. The actual
+object translated only 0.960 mm from the planning-time truth to the final
+call. This establishes this stop's packet-expiry mechanism, not a general
+perception defect or proof that all object motion was harmless.
+
+Decision: preserve the guard. Next specify bounded hold/reacquisition and
+fresh collision-checked replanning, including rejection of real displacement,
+stale packets and repeated outliers, before implementation. Longer runtime
+alone cannot bypass this terminal decision. No physical improvement is claimed.
+Evidence: `logs/jumper/jumper.pickup/pose-terminal-observer-2026-10-15/`;
+external probes: `/tmp/jumper_pose_{timing_bdd,observer_bdd,observer,observer_review}.py`.
