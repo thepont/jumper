@@ -8,6 +8,70 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Nine-location physical development matrix — 2026-10-15
+
+User-authorized one attempt at each world-XY offset in {-10, 0, +10} mm squared,
+using existing reset configuration (no post-reset pose writes). Completed on
+`music-room`, native CPU, one world/native/Torch thread, Python 3.13.14,
+Torch 2.11.0+cu128 and MuJoCo 3.11.0. Fixed seeds 970001/970002, standard SOAP,
+existing 2 mm layout jitter and synthetic noisy/delayed position/orientation
+detections. No NN training or hardware actuation. Forty simulated seconds per
+case maximum, 210 s subprocess limit, 600 s total cap; no retries or tuning.
+All nine reports completed, exit codes were zero, no timeouts occurred, source
+hashes matched and all nine reset-state hashes were distinct. Total wall time
+was **309.57 seconds**.
+
+The opt-in execution path retains the corrected trim ordering, 2 mm stand-off,
+existing planning, 1 mm clearance, support/tilt limits and arrival gate. The new
+`grasp_finger_target` closes only in CLOSE at at most 0.5 rad/s and holds the
+target when the auxiliary loaded score reaches 0.9; the existing squeeze limiter
+still applies. Eleven sustained loaded-score samples permit the checked lift
+route, now recorded by the planner. Every emitted combined arm/finger corridor
+is checked. Only the canonical physical pickup predicate can report success.
+The 0.9 score is not the old unweighted centroid threshold, nor hardware tactile
+feedback. Unit contracts exercise the conditional phases; this physical matrix
+did **not** reach them, so integrated physical closure/lift remains unverified.
+
+| World X offset / Y offset | -10 mm | 0 mm | +10 mm |
+| --- | --- | --- | --- |
+| -10 mm | No admitted plan | No admitted plan | Pose confirmation lost |
+| 0 mm | No admitted plan | Command corridor rejected | Command corridor rejected |
+| +10 mm | No admitted plan | No admitted plan | No admitted plan |
+
+**3/9 admitted plans and arm approaches; 0/9 closures, lifts or pickups.**
+The six planning failures stopped after 368 steps (7.36 simulated seconds).
+The (-10,+10) mm case stopped after 533 steps (10.66 s), with final point error
+38.932 mm. The original case stopped at 613 steps (12.26 s), error 6.604 mm;
+the (0,+10) mm case stopped at 603 steps (12.06 s), error 7.847 mm. The two
+clearance rejections concern **proposed, unexecuted** palm/soap command corridors,
+not a claim that those penetrations occurred in the live trajectory. Maximum
+recorded support-foot drift across cases was 6.472 mm, under the 8 mm guard.
+Every recorded loaded score was zero. Maximum recorded whole-hull floor
+clearance was 2.000 mm, including initial reset height; it is not an achieved
+lift and is well below the canonical 15 mm requirement.
+
+This physical-reset matrix differs from the previous private estimated-pose
+matrix: world offsets and settling/noisy perception are exercised here, while
+that earlier check held robot state fixed and shifted estimates in the base
+frame. Do not interpret 3/9 versus 2/9 as improvement. These nine fixed scenarios
+are development evidence, not independent statistical confirmation, and cover
+neither varied physical sizes/yaws nor the right arm or arbitrary objects.
+
+Decision: preserve all failures as the regression baseline. Work remains on
+safe final approach/command clearance and pose confirmation before physical
+closure can be validated. None of these cases exhausted its episode horizon;
+more time alone does not bypass a failed gate. No guard was weakened, no policy
+was promoted and old artifacts remain untouched.
+
+TDD: finger-command API was observed missing before implementation; phase,
+loaded-hold, speed/limit and invalid-time cases passed afterward. **268 focused
+unit/BDD/framework checks passed**, 35 warnings, 8.73 s; Ruff/whitespace passed.
+No full-suite claim. Evidence is under
+`logs/jumper/jumper.pickup/math-grasp-physical-matrix-2026-10-15/`: frozen plan,
+per-case reports/traces/videos/logs, `review.json`, source identities and replayable
+external controls. The benchmark records early failures instead of deleting
+them or silently retrying until a location succeeds.
+
 ### Multi-location checks and stand-off investigation — 2026-10-15
 
 The user requested repeatable TDD/BDD coverage beyond the single object fixture.
