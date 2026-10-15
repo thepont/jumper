@@ -40,8 +40,36 @@ def tracking_trim(desired, current_targets, measured, lower, upper, dt):
     return joint_segment_step(current, compensated, max_delta=.45*dt)
 
 
+class TrackingCorrection:
+    """One approach's fixed lag estimate; clearance can only attenuate it.
+
+    Create a fresh instance for each admitted approach. This is not integral
+    control or a force estimator. Each emitted command is independently checked;
+    a held correction does not certify a changed scene or remove phase deadlines.
+    """
+    def __init__(self):
+        self._offset = None
+
+    def _command(self, desired, current, measured, lower, upper, dt, check):
+        # Inputs have passed the refresh and tracking_trim boundary checks.
+        offset = (np.clip(current-measured, -.02, .02) if self._offset is None
+                  else self._offset)
+        for scale in (1., .5, .25, .125, 0.):
+            reduced = offset * scale
+            target = np.clip(desired+reduced, lower, upper)
+            candidate = joint_segment_step(current, target, max_delta=.45*dt)
+            verdict = check(candidate.copy())
+            if type(verdict) is not bool:
+                raise ValueError('command clearance must return a boolean verdict')
+            if verdict:
+                self._offset = reduced.copy()
+                return candidate
+        return None
+
+
 def refreshed_approach_target(ik, qpos, goal, inward, current_targets, endpoint, dt, *,
-                              compensate_tracking=False, command_clearance=None):
+                              compensate_tracking=False, command_clearance=None,
+                              tracking_state=None):
     """Locally refit the terminal pose at the measured base, never switch branches.
 
     The caller owns fresh perception, measured arrival at the final waypoint,
@@ -53,9 +81,13 @@ def refreshed_approach_target(ik, qpos, goal, inward, current_targets, endpoint,
     Optional command_clearance must check the complete measured-to-command path,
     including current stance/jaw targets. Rejected compensation may fall back to
     the independently checked nominal command; neither pass implies grasp success.
+    An opt-in TrackingCorrection latches the initial bias and tries bounded
+    attenuation instead of alternating full and nominal corrections each frame.
     """
     current, original = (np.asarray(v, dtype=float) for v in (current_targets, endpoint))
     if (type(compensate_tracking) is not bool or
+            (tracking_state is not None and (not isinstance(tracking_state, TrackingCorrection)
+             or not compensate_tracking or command_clearance is None)) or
             (command_clearance is not None and not callable(command_clearance)) or
             current.shape != (4,) or original.shape != (4,) or
             not np.isfinite(current).all() or not np.isfinite(original).all() or
@@ -72,6 +104,9 @@ def refreshed_approach_target(ik, qpos, goal, inward, current_targets, endpoint,
     nominal = joint_segment_step(current, joints, max_delta=.45*dt)
     preferred = (tracking_trim(joints, current, np.asarray(qpos)[ik.qadr],
                                ik.lower, ik.upper, dt) if compensate_tracking else nominal)
+    if tracking_state is not None:
+        return tracking_state._command(joints, current, np.asarray(qpos)[ik.qadr],
+                                       ik.lower, ik.upper, dt, command_clearance)
     if command_clearance is None:
         return preferred
     candidates = [preferred]

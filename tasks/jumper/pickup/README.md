@@ -3236,6 +3236,53 @@ trajectory. Preserve all margins. Evidence directories:
 and [replay video](https://files.esson.au/f/jumper-edge-certificate-d85b1062.mp4)
 are hosted until 2026-10-29.
 
+### Retained partial tracking correction — 2026-10-15
+
+The checked full/nominal fallback removed an unsafe command but created a
+two-command cycle. A fixed-feedback diagnostic reproduced .409/.400 rad
+alternation; the physical baseline's last 100 frames contained 79 consecutive
+moving-command reversals. Private kinematics reproduced its measured 4.829 mm
+error while the nominal fit was 3.778 mm. This separated inadequate settling
+from a nominal IK solution outside the 4 mm gate; applied torque saturation
+was not measured and is not ruled out.
+
+Opt-in `TrackingCorrection` now owns one approach's initial bounded lag estimate.
+The estimate is latched, not integrated. On rejection it tries factors 1, 1/2,
+1/4, 1/8 and zero, retaining the accepted reduced offset. Later calls may only
+reduce it further. Every rate-limited command requires the existing complete
+clearance callback. No callback or disabled compensation rejects this mode;
+if no candidate is admitted, no command is returned. Create a fresh state per approach.
+Default stateless callers are unchanged. This State object is deliberately
+small: no new IK, physics, sensor or collision authority.
+
+External `/tmp/jumper_stable_trim_bdd.py` failed 10 cases before implementation;
+with signed-joint and independent-approach controls added, 96 focused tests
+passed in 1.21 s. Coverage includes retained correction, scene-change rejection,
+bounded query count, no bias integration, guard exceptions/malformed verdicts,
+callback mutation isolation and existing tracking/refresh/recovery/clearance.
+No full-suite or Ruff pass is claimed.
+
+One local native CPU centre replay used seed 970001, one world/thread, unchanged
+40 simulated-second / 210 process-second caps, no retries or training. It
+finished exit 0 after 1119 steps / 22.38 simulated seconds, 64.82 controller
+wall seconds, at the unchanged alignment timeout. Frozen sources match.
+Final error improved from 4.829 to 4.495 mm, still above 4 mm; axis error was
+0.1264 rad. Foot drift was 7.532 mm. No closure/lift/pickup or loaded score.
+Rejected candidate pairs were never emitted. Video inspected.
+
+Last-100-frame reversal metric requires both consecutive commands to change
+at least one joint by >1e-4 rad and their increment dot product to be negative.
+It fell from 79 to 0. Mean maximum-per-joint command increment fell from
+0.006511 to 0.00001331 rad. These are one development replay's measurements,
+not broad robustness or hardware proof. Retain the correction; next diagnose
+remaining steady tracking bias and the narrow IK residual allowance rather
+than weakening closing/collision criteria. Nine-location qualification remains
+pending a qualified centre grasp. Evidence:
+`logs/jumper/jumper.pickup/stable-trim-2026-10-15/`.
+[Evidence archive](https://files.esson.au/f/jumper-stable-trim-evidence-370ded62.zip)
+and [video](https://files.esson.au/f/jumper-stable-trim-2f0dd76b.mp4)
+are hosted until 2026-10-29.
+
 ### Checked terminal compensation fallback — 2026-10-15
 
 One instrumented native CPU replay reproduced the edge-certificate baseline
