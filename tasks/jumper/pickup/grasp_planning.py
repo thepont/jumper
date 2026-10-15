@@ -245,9 +245,12 @@ class NativeGraspChecks:
                 distances = [float(mujoco.mj_geomDistance(self.model, self.data, pad,
                                                         self.object_geom, .01, None)) for pad in self.pads]
                 samples.append({'jaw': float(jaw), 'clearance': clearance, 'pad_distances_m': distances})
-                if not clearance or min(distances) < -.002:
+                if (not clearance or not all(math.isfinite(d) for d in distances) or
+                        min(distances) < -.002):
                     break
-                if max(distances) <= .002:
+                # Raw zero mesh queries are ambiguous, not a contact witness.
+                # Continue the bounded sweep, but never admit this sample.
+                if all(d != 0. for d in distances) and max(distances) <= .002:
                     closure_pass, selected_jaw = True, float(jaw)
                     break  # Never require closing through an already seated object.
             detail['closure'] = samples

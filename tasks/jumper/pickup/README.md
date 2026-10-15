@@ -825,6 +825,27 @@ claim. Final checkpoint SHA-256 values are
 `18f8c7c82b3405e125c6881aee604399ab421b7e31668751392b6480a0cbbdc4`
 (60 seconds).
 
+### Conservative closure-query admission — 2026-10-15
+
+The maths planner no longer admits a closure sample on a raw zero insert/object
+distance. That result is ambiguous, not evidence of loaded contact. The bounded
+sweep may examine subsequent apertures; nonfinite distances stop the sweep.
+Existing 2 mm proximity/depth bounds and all clearance limits are unchanged.
+This repairs screening, not the observed physical pickup failure.
+
+The external task regression `jumper_closure_distance_bdd.py` observed three
+zero-distance false admissions before repair. Its 11 cases cover either pad,
+both pads, nonfinite results, valid nonzero proximity and both limit boundaries.
+Together with IK-weight, following and framework-clearance checks, 40 checks
+passed on the local native CPU environment (38 warnings, 6.50 s). Two failures
+in the historical `jumper_grasp_stage_bdd.py` were reproduced with the repair
+removed: its fixtures lack current self-contact fields/sensors. They remain
+unmodified. Ruff was unavailable in this environment; no lint/full-suite pass
+is claimed. The probe is preserved under
+`logs/jumper/jumper.pickup/closure-query-regression-2026-10-15/verification/`.
+Command/perception tracing and physical closure qualification remain pending;
+this change is not evidence of grasp improvement or hardware readiness.
+
 ### Teacher clearance repair — 2026-10-14
 
 The default left pickup teacher now uses measured arrival (10 samples within
