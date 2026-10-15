@@ -17,6 +17,77 @@ def measured_grasp_alignment(position_error_m, axis_error_rad):
     return position_error_m <= .005 and axis_error_rad <= math.radians(10.)
 
 
+class ObjectTargetTracker:
+    """Bounded pre-contact object-relative target, in a fixed world frame.
+
+    Inputs are measured poses, not simulator truth. Rotation maps object-local
+    points into world coordinates. Limits are relative to the ORIGINAL plan:
+    8 mm object/goal displacement and 10 degrees rotation, never a rolling bound.
+    Missing/stale packets yield no target. Large motion latches replan-required;
+    this class cannot authorise replanning or execute commands. First contact
+    freezes the goal permanently for this approach, avoiding contact chasing.
+    Caller owns IK, path clearance, timing, contact validity and lift/slip checks.
+    """
+    @staticmethod
+    def _pose(position, rotation):
+        p, r = np.asarray(position, dtype=float), np.asarray(rotation, dtype=float)
+        if (p.shape != (3,) or r.shape != (3, 3) or
+                not np.isfinite(p).all() or not np.isfinite(r).all() or
+                not np.allclose(r.T @ r, np.eye(3), atol=1e-6, rtol=0) or
+                abs(np.linalg.det(r)-1.) > 1e-6):
+            raise ValueError('tracking needs a finite world position and proper rotation')
+        return p.copy(), r.copy()
+
+    def __init__(self, position_world, rotation_world, goal_world, inward_world):
+        self.origin, self.rotation = self._pose(position_world, rotation_world)
+        goal, axis = np.asarray(goal_world, dtype=float), np.asarray(inward_world, dtype=float)
+        if (goal.shape != (3,) or axis.shape != (3,) or
+                not np.isfinite(goal).all() or not np.isfinite(axis).all() or
+                abs(np.linalg.norm(axis)-1.) > 1e-6):
+            raise ValueError('tracking needs a finite goal and unit inward axis')
+        self.initial_goal = goal.copy()
+        self.goal, self.axis = goal.copy(), axis.copy()
+        self.local_goal = self.rotation.T @ (goal-self.origin)
+        self.local_axis = self.rotation.T @ axis
+        self.observed_at = None
+        self.last_time = None
+        self.contact_latched = False
+        self.replan_required = False
+
+    def update(self, now, *, position_world=None, rotation_world=None,
+               observed_at=None, contact=False):
+        if (type(now) not in (int, float) or not math.isfinite(now) or now < 0 or
+                (self.last_time is not None and now <= self.last_time) or
+                type(contact) is not bool):
+            raise ValueError('tracking needs an increasing finite clock and boolean contact')
+        packet = (position_world, rotation_world, observed_at)
+        if any(value is not None for value in packet):
+            if (any(value is None for value in packet) or
+                    type(observed_at) not in (int, float) or
+                    not math.isfinite(observed_at) or not 0 <= observed_at <= now):
+                raise ValueError('tracking requires a complete, past-timestamped pose packet')
+            position, rotation = self._pose(position_world, rotation_world)
+        self.last_time = now
+        self.contact_latched |= contact
+        if self.replan_required or observed_at is None or now-observed_at > .25:
+            return None
+        if self.observed_at is not None and observed_at < self.observed_at:
+            return None
+        if self.observed_at is None or observed_at > self.observed_at:
+            angle = math.acos(np.clip((np.trace(rotation @ self.rotation.T)-1.)/2., -1., 1.))
+            goal = position + rotation @ self.local_goal
+            if (np.linalg.norm(position-self.origin) > .008 or
+                    np.linalg.norm(goal-self.initial_goal) > .008 or
+                    angle > math.radians(10.) + 1e-12):
+                self.replan_required = True
+                return None
+            self.observed_at = observed_at
+            if not self.contact_latched:
+                self.goal = goal
+                self.axis = rotation @ self.local_axis
+        return self.goal.copy(), self.axis.copy()
+
+
 def grasp_finger_target(phase, current, opened, closed, loaded, dt):
     """Canonical LF angle: close only with permission; hold once loaded.
 

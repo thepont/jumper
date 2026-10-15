@@ -165,11 +165,17 @@ class GripGate:
     in the corresponding phase. Samples alone cannot bypass minimum dwell time.
     Native loads are simulation feedback, not an existing hardware tactile sensor.
     """
-    def __init__(self, *, pose_recovery_s=0.):
+    def __init__(self, *, pose_recovery_s=0., close_alignment_recovery_s=0.):
         if (type(pose_recovery_s) not in (int, float) or
                 not math.isfinite(pose_recovery_s) or not 0 <= pose_recovery_s <= .5):
             raise ValueError('pose recovery budget must be finite in [0, .5] seconds')
         self.pose_recovery_s = pose_recovery_s
+        if (type(close_alignment_recovery_s) not in (int, float) or
+                not math.isfinite(close_alignment_recovery_s) or
+                not 0 <= close_alignment_recovery_s <= .5):
+            raise ValueError('closing alignment recovery must be within [0, .5] seconds')
+        self.close_alignment_recovery_s = close_alignment_recovery_s
+        self.alignment_lost_at = None
         self.pose_lost_at = None
         self.phase = Phase.WAIT
         self.reason = None
@@ -187,8 +193,9 @@ class GripGate:
         self.count, self.stable_since = 0, None
 
     def advance(self, now_s, *, pose_usable, plan_admitted, aligned,
-                loaded_central, pickup_verified, guard_failed):
-        flags = (pose_usable, plan_admitted, aligned, loaded_central, pickup_verified, guard_failed)
+                loaded_central, pickup_verified, guard_failed, contact_present=False):
+        flags = (pose_usable, plan_admitted, aligned, loaded_central, pickup_verified,
+                 guard_failed, contact_present)
         if (type(now_s) not in (int, float) or not math.isfinite(now_s) or now_s < 0 or
                 (self.last_time is not None and now_s <= self.last_time) or
                 any(type(v) is not bool for v in flags)):
@@ -235,8 +242,18 @@ class GripGate:
                 self._transition(Phase.BLOCKED, now_s, 'measured alignment timeout')
         elif self.phase == Phase.CLOSE:
             if not aligned:
-                self._transition(Phase.BLOCKED, now_s, 'alignment lost during closure')
+                # Opt-in pause before contact only. Caller holds jaw target and
+                # independently checks every arm correction; total close budget
+                # remains five seconds, even across repeated recoveries.
+                if self.alignment_lost_at is None:
+                    self.alignment_lost_at = now_s
+                self.count, self.stable_since = 0, None
+                if (self.close_alignment_recovery_s == 0 or contact_present or loaded_central or
+                        now_s-self.alignment_lost_at > self.close_alignment_recovery_s or
+                        now_s-self.entered > 5.):
+                    self._transition(Phase.BLOCKED, now_s, 'alignment lost during closure')
             else:
+                self.alignment_lost_at = None
                 self.count = self.count + 1 if loaded_central else 0
                 self.stable_since = (now_s if self.count == 1 else self.stable_since) if loaded_central else None
                 if self.count >= 11 and now_s-self.stable_since >= .2 - 1e-9:
