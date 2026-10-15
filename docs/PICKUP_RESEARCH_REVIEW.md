@@ -58,6 +58,31 @@ Different closing Strategies may justify a factory later. No alternative closing
 algorithm, NN, new force interface or automatic retry is introduced by this repair.
 See [measured controls and robot-test results](../tasks/jumper/pickup/README.md).
 
+## Best feasible grip and regression coverage
+
+The objective is the best achievable useful grip, not one perfect central pose.
+Search and rank feasible contact regions/arm branches; report quality and
+uncertainty separately from independent physical pickup/hold evidence. Centrality
+is a preference, not proof of load resistance or a substitute for COM sensing.
+The earlier frozen experiments still retain their original auxiliary score gate;
+changing that gate is a separate behaviour change needing its own red tests.
+
+First pin a case where an accurate IK branch collides but another known branch
+is safe. Also require a usable off-centre grasp to remain eligible when a preferred
+centred grasp is unreachable, and an unsafe high-score candidate to remain
+rejected. Exhausted search means unresolved within that search, not impossible.
+Supported body repositioning or stepping can be proposed by a separate controller
+if needed; neither is an unchecked fallback inside grasp closure.
+
+Broaden physical evaluation across declared object geometries, sizes, orientations,
+locations and supported load/friction variations. Freeze each study's cases,
+budgets and criteria before running it. Classify failures as perception, pose fit,
+colliding endpoint/path, closure, slip, hold or balance; fix a reproducible class
+with a failing regression rather than per-object exceptions. Repeat previously
+working cases after every change, and keep unseen objects/positions for separate
+confirmation. Repeatedly tuned cases are development evidence, not generalisation.
+This matrix is proposed; the current physical tests remain single-SOAP cases.
+
 ## Accompanying code review
 
 The [author GG-CNN repository](https://github.com/dougsm/ggcnn) distinguishes its
