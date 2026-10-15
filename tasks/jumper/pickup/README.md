@@ -8,6 +8,48 @@ walking checkpoints, or teach walking while carrying.
 
 ## Train and replay
 
+### Rust moving-target recovery contract — 2026-10-16
+
+The new opt-in `tracking::Tracking<P>` supervisor keeps requesting freshly
+checked plans for new target observations, rather than treating waypoint arrival
+as the end of tracking. An infeasible target update discards the old route and
+requests a geometry-checked hold; a later feasible capture resumes motion in the
+same session. Missing/stale/reordered observations also hold. Retries cannot
+extend the original absolute deadline. The existing `JointMotion`/`SceneMotion`
+remain the rate, waypoint and scene authorities. The Python extension is an
+Adapter to Rust; no second tracking algorithm was added in Python.
+
+The object need not stop before alignment. Tests explicitly require alignment
+while a synthetic target continues moving, recovery after an infeasible first
+plan, and resumed tracking when a previously reached target moves away. Optional
+dwell concerns measured hand/object RELATIVE pose, not target stationarity, and
+can be zero. `Aligned` alone never certifies capture or authorises closure; the
+grasp phase must still check relative motion, closure latency/geometry and actual
+contact/lift evidence. Distance-dependent faster travel is not enabled: the
+existing rate cap remains while stopping-distance and obstacle coverage are
+unvalidated. No tolerance, collision margin, reward, physics or policy changed.
+
+Measured on music-room, 2026-10-16: three initial behavioural tests failed against
+hold-only behaviour before implementation. Seventeen tracking tests now pass
+within **217 passing Rust core tests**. A feedback-gap regression also failed
+before its correction: unsampled time no longer counts as alignment evidence.
+Four extension contract cases failed before the export existed, then passed;
+**56 extension/app-play checks passed**, with 38 existing warnings. The host
+web-feature build and new-module Rust formatting check passed. This is not a
+WASM target/binding result. Clippy remains blocked by the unchanged
+`control.rs` `never_loop` error; Ruff is unavailable. No full-framework lint or
+test-suite pass is claimed.
+
+These are deterministic ideal-plant and adapter tests, NOT a new Jumper pickup,
+real-camera tracking or physical catch result. No new physical episode or video
+was produced for this change. The supervisor is available to simulation hosts,
+but the earlier runner's stop-at-arrival path is not replaced by this commit.
+Remaining integration must route fresh estimated poses through the checked
+planner, exercise moving/occluded targets and obstacles in physical simulation,
+and continue through guarded closure/lift with canonical witnesses. Preserve
+the previous unsuccessful runs; do not relabel them as tracking successes.
+API and port contracts are in `deploy/fsm/KINEMATICS.md`.
+
 ### Finger-only check at the stopped poses — 2026-10-15
 
 The user's observation that closing might be the missing step was tested in
