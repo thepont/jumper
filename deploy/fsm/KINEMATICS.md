@@ -1,5 +1,61 @@
 # Portable grasp-controller plan
 
+## Pickup and secure hold, without placement (2026-10-16)
+
+`capture::Capture` owns the opt-in capture phase policy in Rust. Its exhaustive
+State enum is Tracking / Closing / Lifting / Verified / Stopped. There is no
+put-down, release or tray-placement state. The legacy Python gate remains for
+reproducing earlier experiments; the Rust-backed host does not call it for
+capture decisions. Remove that compatibility path only after its old evidence
+can still be reproduced and the replacement is physically qualified.
+
+The host composes `Tracking`, `Capture`, existing IK/path Strategies and the
+existing action/squeeze limiter. Fresh relative alignment plus a separately
+admitted grasp can begin closing immediately, including while the target moves.
+Waypoint arrival is not the closing criterion. Temporary pre-contact loss can
+pause jaw advancement and recover inside the original closing deadline; contact
+prohibits blind realignment. An unanticipated tracking-phase contact, malformed
+feedback, safety failure or deadline latches stop. Neither alignment recovery
+nor loaded-contact samples reset phase deadlines.
+
+Loaded capture needs the configured consecutive count AND duration; gaps over
+40 ms reset that evidence. Only an independent physical pickup witness can enter
+Verified after lifting. Verified continues monitoring qualified load, sensing
+and plan validity if the host keeps stepping: a dropped grip cannot masquerade
+as a secure hold. This gate neither computes nor fabricates force/clearance
+evidence, and is not itself an actuator or hardware safety certificate.
+
+The Python Adapter exports `Capture(policy_json, start_ns)`, with policy fields
+`approach`, `close`, `lift`, `recovery`, `loaded_samples`, `loaded_duration`.
+Durations use the same `{secs, nanos}` representation as tracking. Call
+`advance(now_ns, (fresh, plan, aligned, contact, loaded, pickup, unsafe))` to obtain
+`(phase, advance_jaw)`. Flags must be actual booleans; malformed input consumes
+the adapter. The host must obey `advance_jaw`, not infer jaw movement from phase
+alone. All combined arm/finger proposals still need corridor admission before
+dispatch.
+
+`NativeTrackingPlanner` is a task-owned simulator/IK/path Adapter, not another
+motion controller. It checks the current arm route independently from future
+grasp feasibility. Requiring a complete future frozen-object closure/lift for
+every outer approach update caused hold starvation in the first replay. Later
+grasp admission remains mandatory before closing. Pregrasp and contact offsets
+are explicit separate proposals, not altered acceptance tolerances. The adapter
+reuses the existing multi-start IK, convex SOAP geometry and path checker.
+Tracking planner requests now also include measured `tool_position` and
+`tool_axis`, validated in Rust, to judge the outer-to-terminal path transition.
+
+Expected pad/object contact uses the new opt-in
+`GeometryClearance.check_contact_depth(qpos, max_penetration_m=...)`. It reuses
+the positive-clearance query and complete-pose validation. An unresolved zero
+needs either signed compiled-contact depth or a separating-plane certificate;
+missing/disabled-mask evidence and excessive depth reject. Forbidden robot
+contacts continue using positive clearance. This is neither a force witness
+nor permission to disregard object/finger-body or robot self-collision.
+
+The bounded external integration host and physical outcomes are recorded in
+`tasks/jumper/pickup/README.md`. This API alone does not establish a Jumper
+pickup, long-term retention, arbitrary moving-object interception or a catch.
+
 ## Recoverable observed-target tracking (2026-10-16)
 
 `tracking::Tracking<P>` is an opt-in Application Service around the existing

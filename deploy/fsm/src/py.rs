@@ -837,6 +837,8 @@ impl crate::tracking::Planner for PythonPlanner {
             request.set_item("axis", observation.target.axis.to_vec())?;
             request.set_item("current", feedback.current.to_vec())?;
             request.set_item("measured", feedback.measured.to_vec())?;
+            request.set_item("tool_position", feedback.tool.position.to_vec())?;
+            request.set_item("tool_axis", feedback.tool.axis.to_vec())?;
             request.set_item("now_ns", feedback.now.as_nanos())?;
             request.set_item("observed_at_ns", observation.scene.observed_at.as_nanos())?;
             request.set_item("scene_revision", observation.scene.revision)?;
@@ -954,8 +956,54 @@ impl PyTracking {
     }
 }
 
+#[pyclass(name = "Capture")]
+pub struct PyCapture(Option<crate::capture::Capture>);
+
+#[pymethods]
+impl PyCapture {
+    #[new]
+    fn new(policy: &str, start_ns: &Bound<'_, PyAny>) -> PyResult<Self> {
+        if policy.len() > 65_536 { return Err(err("capture policy too large")); }
+        let policy: crate::capture::Policy = serde_json::from_str(policy).map_err(err)?;
+        crate::capture::Capture::new(policy,
+            std::time::Duration::from_nanos(scene_integer(start_ns)?))
+            .map(|gate| Self(Some(gate))).map_err(err)
+    }
+
+    /// (fresh, plan, relative_alignment, contact, qualified_load, pickup, unsafe).
+    fn advance(&mut self, now_ns: &Bound<'_, PyAny>, evidence: &Bound<'_, PyAny>)
+        -> PyResult<(String, bool)> {
+        let mut gate = self.0.take().ok_or_else(|| err("capture stopped"))?;
+        let now = std::time::Duration::from_nanos(scene_integer(now_ns)?);
+        let fields = evidence.downcast::<pyo3::types::PyTuple>()?;
+        if fields.len() != 7 { return Err(err("expected seven capture flags")); }
+        let mut flags = [false; 7];
+        for (index, flag) in flags.iter_mut().enumerate() {
+            let value = fields.get_item(index)?;
+            if !value.is_instance_of::<pyo3::types::PyBool>() {
+                return Err(err("capture flags must be booleans"));
+            }
+            *flag = value.extract()?;
+        }
+        let [fresh, plan, aligned, contact, loaded, pickup, unsafe_scene] = flags;
+        let result = gate.advance(crate::capture::Evidence {
+            now, fresh, plan, aligned, contact, loaded, pickup, unsafe_scene,
+        }).map_err(err)?;
+        let phase = match result.phase {
+            crate::capture::Phase::Tracking => "tracking",
+            crate::capture::Phase::Closing => "closing",
+            crate::capture::Phase::Lifting => "lifting",
+            crate::capture::Phase::Verified => "verified",
+            crate::capture::Phase::Stopped => "stopped",
+        };
+        self.0 = Some(gate);
+        Ok((phase.into(), result.advance_jaw))
+    }
+}
+
 #[pymodule]
 fn mjrl_fsm(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyCapture>()?;
     m.add_class::<PyTracking>()?;
     m.add_class::<PySceneMotion>()?;
     m.add_class::<PyJointMotion>()?;

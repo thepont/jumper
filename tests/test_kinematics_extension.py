@@ -94,6 +94,25 @@ def test_rust_tracking_adapter_failures_latch_without_unchecked_resume(extension
         session.step(feedback, observation, lambda q: True)
 
 
+def test_capture_adapter_requires_load_and_physical_pickup_after_moving_alignment(extension):
+    policy = dict(approach={"secs": 15, "nanos": 0}, close={"secs": 5, "nanos": 0},
+                  lift={"secs": 5, "nanos": 0}, recovery={"secs": 0, "nanos": 500_000_000},
+                  loaded_samples=11, loaded_duration={"secs": 0, "nanos": 200_000_000})
+    capture = extension.Capture(json.dumps(policy), 0)
+    # fresh, plan, relative alignment, contact, qualified load, pickup, unsafe
+    assert capture.advance(20_000_000, (True, True, True, False, False, False, False)) == (
+        "closing", True)
+    for i in range(2, 13):
+        phase, close = capture.advance(i*20_000_000,
+                                      (True, True, True, True, True, False, False))
+        assert not close
+        assert phase == ("lifting" if i == 12 else "closing")
+    assert capture.advance(260_000_000, (True, True, False, True, True, False, False))[0] == (
+        "lifting")
+    assert capture.advance(280_000_000, (True, True, False, True, True, True, False))[0] == (
+        "verified")
+
+
 def test_given_named_joint_when_queried_then_return_world_point_and_direction(extension):
     arm = extension.SerialArm(json.dumps(descriptor()))
     point, axis = arm.forward([2, 3, 4], [1, 0, 0, 0], {"hinge": 0})
