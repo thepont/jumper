@@ -70,6 +70,34 @@ def test_wrong_pose_array_lengths_are_rejected(extension):
         arm.forward([0, 0], [1, 0, 0, 0], {"hinge": 0})
 
 
+def test_motion_checks_candidate_before_return_and_latches_rejection(extension):
+    motion = extension.JointMotion([[1., .5]], [-2., -2.], [2., 2.], .45, 2.)
+    seen = []
+
+    def clear(candidate):
+        seen.append(candidate)
+        return True
+
+    result = motion.step([0., 0.], [0., 0.], .02, clear)
+    assert result == pytest.approx([.009, .0045])
+    assert seen == [result]
+    assert not motion.arrived
+    with pytest.raises(ValueError):
+        motion.step(result, result, .02, lambda _: False)
+    with pytest.raises(ValueError):
+        motion.step(result, result, .02, clear)
+    assert len(seen) == 1
+
+
+@pytest.mark.parametrize("verdict", [None, 1, "yes"])
+def test_motion_guard_requires_a_real_boolean(extension, verdict):
+    motion = extension.JointMotion([[1.]], [-2.], [2.], .45, 2.)
+    with pytest.raises(ValueError):
+        motion.step([0.], [0.], .02, lambda _: verdict)
+    with pytest.raises(ValueError):
+        motion.step([0.], [0.], .02, lambda _: True)
+
+
 @pytest.mark.parametrize("positions", [[.2, -.1], [.7, -.6], [-1.1, .8]])
 def test_compiled_mujoco_chain_matches_rust_with_anchors_and_references(extension, positions):
     """Independent FK oracle; asymmetry catches reversed order and dropped origins."""

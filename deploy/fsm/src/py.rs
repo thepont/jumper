@@ -658,8 +658,55 @@ impl PySerialArm {
     }
 }
 
+/// Feedback-driven motion proposals; a host guard must approve every command.
+#[pyclass(name = "JointMotion")]
+pub struct PyJointMotion(crate::joint_motion::JointMotion);
+
+#[pymethods]
+impl PyJointMotion {
+    #[new]
+    fn new(
+        points: Vec<Vec<f64>>,
+        lower: Vec<f64>,
+        upper: Vec<f64>,
+        rate: f64,
+        timeout: f64,
+    ) -> PyResult<Self> {
+        crate::joint_motion::JointMotion::new(points, lower, upper, rate, timeout)
+            .map(Self)
+            .map_err(err)
+    }
+
+    #[getter]
+    fn arrived(&self) -> bool {
+        self.0.arrived()
+    }
+
+    fn step(
+        &mut self,
+        py: Python<'_>,
+        current: Vec<f64>,
+        measured: Vec<f64>,
+        dt: f64,
+        guard: PyObject,
+    ) -> PyResult<Vec<f64>> {
+        self.0
+            .step(&current, &measured, dt, |candidate| {
+                let result = guard
+                    .call1(py, (candidate.to_vec(),))
+                    .map_err(|e| e.to_string())?;
+                if !result.bind(py).is_instance_of::<pyo3::types::PyBool>() {
+                    return Err("motion guard must return a boolean".into());
+                }
+                result.extract::<bool>(py).map_err(|e| e.to_string())
+            })
+            .map_err(err)
+    }
+}
+
 #[pymodule]
 fn mjrl_fsm(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyJointMotion>()?;
     m.add_class::<PySerialArm>()?;
     m.add_class::<PyReport>()?;
     m.add_class::<PyFsm>()?;

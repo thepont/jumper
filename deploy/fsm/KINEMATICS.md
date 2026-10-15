@@ -99,3 +99,53 @@ Reproduce the shared boundary and synthetic-MuJoCo tests with
 `python -m pytest tests/test_kinematics_extension.py -q`.
 WASM bindings, task-scene parity, Jacobian checks and closed-loop movement remain
 pending; the earlier acceptance gates still apply.
+
+## First Rust-driven physical simulation segment
+
+`joint_motion::JointMotion` now owns feedback-gated segment progression, exposed
+as `mjrl_fsm.JointMotion(points, lower, upper, rate, timeout)`.
+`step(current, measured, dt, guard)` proposes the next rate-bounded point and
+calls the host's guard before returning it. The guard must check the complete
+measured-to-command corridor, support and any required sensing. It must return
+a boolean; rejection, exception, malformed feedback or expiry latches Stop.
+There is no blind resume: a new validated plan needs a new instance.
+
+This uses State for Moving/Arrived/Stopped and a callback Strategy for scene
+checks. The existing recorded `Trajectory` is time-indexed, so it cannot replace
+measured waypoint progression without changing its existing behaviour. No
+existing trajectory or grasp-follower tests were changed. The Python grasp
+prototype remains intact; it is not yet replaced by this integration primitive.
+
+Rate is a joint increment bound in rad/s, not a torque or physical velocity
+guarantee. The host owns servo application, sensor timestamps, a wall deadline
+and stopping actuators. The Rust timeout counts supplied simulation timesteps;
+it is not a wall-clock watchdog. `arrived` means joint tracking within 0.02 rad
+and commanded position within 1e-6 rad, never qualified grasp alignment.
+
+On `music-room`, 2026-10-15, one bounded run in
+`logs/jumper/jumper.pickup/rust-motion-demo-2026-10-15`:
+
+- Open claw, LF shoulder target -0.20 rad from its starting command; other arm
+  joint targets unchanged. This is a motion connection test, not a new grasp plan.
+- Rust produced 49 checked commands at 0.45 rad/s maximum target progression.
+  Measured arrival and a half-second hold completed; 107 physics-control steps
+  were recorded as a 2.16-second MP4 using the shared ReplayVideo renderer.
+- Smallest reported checked gap: 2 mm; no rejected clearance queries. Maximum
+  support-foot drift: 0.747 mm. Motion-period maximum tilt: 1.317 degrees.
+  Overall tilt peaked at 4.260 degrees during initial settling, before motion
+  admission. Motion required the unchanged <=3-degree and support gates.
+- Task-scene FK matched MuJoCo throughout: maximum point difference
+  1.442222014787673e-16 m, direction-vector difference 9.142502916948183e-16.
+- No post-reset pose writes drove the robot; Rust proposals passed through the
+  existing Python action/servo mechanism and MuJoCo dynamics. Python retained
+  scene construction, guard queries and rendering. This is not a browser WASM
+  integration or a standalone Rust grasp controller.
+- No closure, lift or pickup was attempted. The rejected grasp preparation
+  remains unresolved. Adjacent/rigid interfaces and rear-only collision pairs
+  are outside this guard's scope; no hardware safety claim is made.
+
+TDD: four core tests failed against the stub, then passed; one rejection control
+already passed. Four Python boundary tests failed before the export existed,
+then passed. Current gates: 195 Rust core tests; 29 combined interface/app-play
+tests passed (38 existing warnings). No full-framework or Python lint pass is
+claimed. The driver, protocol, trace, report and MP4 are preserved together.
