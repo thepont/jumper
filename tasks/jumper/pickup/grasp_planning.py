@@ -19,6 +19,44 @@ from .collision import non_claw_object_pairs, non_insert_object_pairs, nonadjace
 from .grasp_advisor import CandidateChecks, ObjectPose
 
 
+def fit_grasp_waypoint(ik, qpos, goal, inward, *, alternate_starts=True):
+    """Try ten deterministic starts through the existing IK authority.
+
+    Only arm seed joints change in private copies. Admission retains separate
+    position/alignment limits. This samples local solutions, not every branch;
+    the chosen waypoint still needs collision and continuity checks.
+    """
+    if type(alternate_starts) is not bool:
+        raise ValueError('alternate_starts must be boolean')
+    seeds = [np.asarray(qpos, dtype=float).copy()]
+    if alternate_starts:
+        rng = np.random.default_rng(410019)
+        for joints in [(ik.lower + ik.upper) / 2,
+                       *rng.uniform(ik.lower, ik.upper, size=(8, len(ik.qadr)))]:
+            seed = seeds[0].copy()
+            seed[ik.qadr] = joints
+            seeds.append(seed)
+    fits, records = [], []
+    for seed in seeds:
+        fit = ik.solve(seed, goal, axis_target=inward)
+        fits.append(fit)
+        records.append({'error_m': float(fit.error_m),
+                        'axis_error_rad': float(fit.axis_error_rad),
+                        'admitted': bool(fit.error_m <= .004 and
+                                         fit.axis_error_rad <= math.radians(10.))})
+
+    def rank(index):
+        fit, record = fits[index], records[index]
+        residual = max(fit.error_m / .004, fit.axis_error_rad / math.radians(10.))
+        travel = float(np.linalg.norm(fit.joints - seeds[0][ik.qadr]))
+        return (not record['admitted'], travel if record['admitted'] else residual, index)
+
+    selected = min(range(len(fits)), key=rank)
+    for index, record in enumerate(records):
+        record['selected'] = index == selected
+    return fits[selected], records
+
+
 class NativeGraspChecks:
     def __init__(self, env, estimate):
         if (not isinstance(estimate, ObjectPose) or estimate.orientation_wxyz is None or
@@ -147,14 +185,17 @@ class NativeGraspChecks:
         goals = (contact-inward*.017, contact-inward*.002,
                  contact-inward*.002 + np.array([0., 0., .05]))
         fits = []
+        attempts = []
         seed = self.qpos.copy()
         for goal in goals:
-            fit = self.ik.solve(seed, goal, axis_target=inward)
+            fit, records = fit_grasp_waypoint(self.ik, seed, goal, inward)
             fits.append(fit)
+            attempts.append(records)
             seed[self.ik.qadr] = fit.joints
         ik_pass = all(f.error_m <= .004 and f.axis_error_rad <= math.radians(10.) for f in fits)
         detail = {'ik_errors_m': [f.error_m for f in fits],
                   'axis_errors_rad': [f.axis_error_rad for f in fits],
+                  'ik_attempts': attempts,
                   'path': 'not_run', 'closure': 'not_run', 'lift': 'not_run'}
         reasons, path_pass, closure_pass, lift_pass = [], False, False, False
         if not ik_pass:
