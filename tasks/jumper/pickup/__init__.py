@@ -23,5 +23,8 @@ def cli_args(group):
                        help="near curriculum PPO: retain loaded actor scaling and use fixed 3e-5 learning rate")
     group.add_argument("--bounded-action-history", action="store_true",
                        help="place-near only: feed bounded commands back to the actor; distinct checkpoint contract")
+    group.add_argument("--finger-close-speed", type=float, default=None,
+                       help="closing-target slew in rad/s; opening unchanged; distinct contract")
     return ("claw_side", "position_jitter_mm", "detection_dropout", "object_size",
-            "training_stage", "grasp_start", "freeze_actor_normalization", "bounded_action_history")
+            "training_stage", "grasp_start", "freeze_actor_normalization", "bounded_action_history",
+            "finger_close_speed")

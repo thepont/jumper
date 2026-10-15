@@ -62,6 +62,8 @@ class PickupRunner(MjlabOnPolicyRunner):
                             rewards='discounted-potentials+failure-aware-settled-placement/1')
             if getattr(term.cfg, 'bounded_action_history', False):
                 contract['action_feedback'] = 'bounded-command-history/1'
+        if getattr(term.cfg, 'finger_close_speed', None) is not None:
+            contract['finger_closing_target_slew_rad_s'] = term.cfg.finger_close_speed
         return contract
 
     def transfer_grasp_actor(self, path):
