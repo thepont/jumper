@@ -62,3 +62,40 @@ cargo test --manifest-path deploy/fsm/Cargo.toml --no-default-features --lib --l
 No IK, pickup, hardware safety, deployment, resume behaviour or full virtual-demo
 success is claimed by this first slice. Existing policies, physics and safety
 thresholds are unchanged.
+
+## Python query boundary and compiled-model parity
+
+The `py` feature now exports `mjrl_fsm.SerialArm(descriptor_json)`. Its
+`forward(translation, rotation_wxyz, positions_by_name)` returns
+`(world_point, world_direction)` as two numeric lists. Invalid inputs raise
+`ValueError`; there is no fallback and no actuator access. JSON is parsed only
+at construction, and the wrapper delegates calculations to the same Rust core.
+This does not yet connect a planner to `play --app`.
+
+Measured on `music-room`, Linux, 2026-10-15, MuJoCo 3.11.0:
+
+- Eight boundary tests failed first because the export did not exist, then
+  passed after binding it. Three additional synthetic compiled-MuJoCo cases
+  pin nonzero anchors/references and rotated body frames: 11 tests pass.
+- A separate non-actuating LF asset probe checked five arm configurations
+  (home plus four asymmetric configurations) under two base poses. All ten
+  passed a 1e-10 tolerance. Maximum position difference was
+  7.110250420355456e-17 m; maximum direction-vector difference was
+  2.9893669801409083e-16.
+- Asset source: `assets/jumper/jumper.xml`, SHA256
+  `3342ca15a5bbcaf40e1f16dedb60044b91360dddae5f7f03f05eb3e6c830cf37`.
+  The descriptor was extracted from the compiled model; the point was the
+  existing calibrated fixed-contact reference. An asymmetric unit vector tested
+  direction transformation, not contact-normal calibration.
+- This probe used the raw asset, not the assembled pickup task scene. Static
+  scratch states are FK queries, not feasible paths or physical executions.
+- All 190 Rust core tests still pass. Ruff was unavailable in the local virtual
+  environment; no Python lint pass is claimed.
+- Existing `test_fsm_extension.py` / `test_app_play.py` run: 14 passed,
+  one module skipped for its absent exported-policy fixture, 38 warnings.
+  The new boundary suite builds independently and does not require that policy.
+
+Reproduce the shared boundary and synthetic-MuJoCo tests with
+`python -m pytest tests/test_kinematics_extension.py -q`.
+WASM bindings, task-scene parity, Jacobian checks and closed-loop movement remain
+pending; the earlier acceptance gates still apply.

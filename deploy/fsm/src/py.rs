@@ -625,8 +625,42 @@ fn fresh(last: Option<u64>, now: u64, timeout_us: u64) -> bool {
     last.is_some_and(|t| now.saturating_sub(t) < timeout_us)
 }
 
+/// Non-actuating model queries; no access to the controller or its targets.
+#[pyclass(name = "SerialArm")]
+pub struct PySerialArm(crate::kinematics::SerialArm);
+
+#[pymethods]
+impl PySerialArm {
+    #[new]
+    fn new(descriptor: &str) -> PyResult<Self> {
+        crate::kinematics::SerialArm::from_json(descriptor)
+            .map(Self)
+            .map_err(err)
+    }
+
+    /// World tool point and direction. Metres, radians, scalar-first quaternion.
+    fn forward(
+        &self,
+        translation: Vec<f64>,
+        rotation_wxyz: Vec<f64>,
+        positions: std::collections::BTreeMap<String, f64>,
+    ) -> PyResult<(Vec<f64>, Vec<f64>)> {
+        let base = crate::kinematics::Pose {
+            translation: translation
+                .try_into()
+                .map_err(|_| err("expected three translation values"))?,
+            rotation_wxyz: rotation_wxyz
+                .try_into()
+                .map_err(|_| err("expected four quaternion values"))?,
+        };
+        let frame = self.0.forward(&base, &positions).map_err(err)?;
+        Ok((frame.position.to_vec(), frame.axis.to_vec()))
+    }
+}
+
 #[pymodule]
 fn mjrl_fsm(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PySerialArm>()?;
     m.add_class::<PyReport>()?;
     m.add_class::<PyFsm>()?;
     m.add("__doc__", "The controller kk-rl-mjlab's robot runs, importable.")?;
